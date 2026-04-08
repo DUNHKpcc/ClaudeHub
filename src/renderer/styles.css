@@ -1,0 +1,13 @@
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  font-family: "Segoe UI", sans-serif;
+  background: #0e1628;
+  color: #f4f7fb;
+}
+
+main {
+  padding: 48px;
+}
