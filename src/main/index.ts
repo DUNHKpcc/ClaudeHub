@@ -1,5 +1,10 @@
-import { BrowserWindow, app } from "electron";
+import { BrowserWindow, app, ipcMain } from "electron";
 import path from "node:path";
+
+import { detectEnvironment } from "./services/environment";
+import { saveConfig } from "./services/config";
+import { testConnectivity } from "./services/connectivity";
+import { IPC_CHANNELS } from "../shared/ipc";
 
 async function createWindow() {
   const window = new BrowserWindow({
@@ -13,4 +18,13 @@ async function createWindow() {
   await window.loadFile(path.join(app.getAppPath(), "dist-renderer/index.html"));
 }
 
-app.whenReady().then(createWindow);
+function registerIpcHandlers() {
+  ipcMain.handle(IPC_CHANNELS.detectEnvironment, () => detectEnvironment());
+  ipcMain.handle(IPC_CHANNELS.saveConfig, (_event, config) => saveConfig(config));
+  ipcMain.handle(IPC_CHANNELS.testConnectivity, (_event, config) => testConnectivity(config));
+}
+
+app.whenReady().then(async () => {
+  registerIpcHandlers();
+  await createWindow();
+});
