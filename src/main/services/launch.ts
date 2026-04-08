@@ -14,9 +14,24 @@ export async function launchClaudeCode(): Promise<number> {
     stdio: "inherit"
   });
 
-  if (child.pid === undefined) {
-    throw new Error("Failed to launch Claude.");
-  }
+  return await new Promise<number>((resolve, reject) => {
+    const handleError = (error: Error) => {
+      child.off("spawn", handleSpawn);
+      reject(error);
+    };
 
-  return child.pid;
+    const handleSpawn = () => {
+      child.off("error", handleError);
+
+      if (child.pid === undefined) {
+        reject(new Error("Failed to launch Claude."));
+        return;
+      }
+
+      resolve(child.pid);
+    };
+
+    child.once("error", handleError);
+    child.once("spawn", handleSpawn);
+  });
 }

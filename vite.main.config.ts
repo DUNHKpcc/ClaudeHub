@@ -16,7 +16,15 @@ export default defineConfig({
       formats: ["es"]
     },
     rollupOptions: {
-      external: ["electron", "node:path", "node:os", "node:fs", "node:child_process"]
+      external: [
+        "electron",
+        "node:path",
+        "node:os",
+        "node:fs",
+        "node:fs/promises",
+        "node:child_process",
+        "node:util"
+      ]
     }
   }
 });
