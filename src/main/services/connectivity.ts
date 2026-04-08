@@ -2,6 +2,7 @@ import type { ConnectivityResult } from "../../shared/contracts";
 import type { ConfigInput } from "../../shared/schemas";
 
 const DEFAULT_BASE_URL = "https://api.anthropic.com";
+const CONNECTIVITY_TIMEOUT_MS = 10_000;
 
 function buildModelsUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/u, "")}/v1/models`;
@@ -30,6 +31,7 @@ export async function testConnectivity(input: ConfigInput): Promise<Connectivity
 
   try {
     const response = await fetch(buildModelsUrl(resolvedBaseUrl), {
+      signal: AbortSignal.timeout(CONNECTIVITY_TIMEOUT_MS),
       headers: {
         "x-api-key": input.apiKey,
         "anthropic-version": "2023-06-01"
@@ -57,6 +59,17 @@ export async function testConnectivity(input: ConfigInput): Promise<Connectivity
       message: "Connectivity check succeeded."
     };
   } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === "TimeoutError" || error.name === "AbortError")
+    ) {
+      return {
+        ok: false,
+        reason: "timeout",
+        message: `Connectivity check timed out after ${CONNECTIVITY_TIMEOUT_MS}ms.`
+      };
+    }
+
     const message = error instanceof Error ? error.message : "Connectivity check failed.";
 
     return {
