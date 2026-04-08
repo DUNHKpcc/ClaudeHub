@@ -1,0 +1,26 @@
+import type { ConfigInput, DependencyStatus } from "./schemas";
+
+export interface DetectEnvironmentResult {
+  dependencies: DependencyStatus[];
+  platform: NodeJS.Platform;
+  arch: string;
+}
+
+export type ConnectivityResult =
+  | {
+      ok: true;
+    }
+  | {
+      ok: false;
+      reason: "missing_key" | "invalid_endpoint" | "auth" | "network" | "timeout";
+    };
+
+export interface InstallRequest {
+  dependencies: Array<"node" | "git" | "claude">;
+}
+
+export interface PClaudeApi {
+  detectEnvironment(): Promise<DetectEnvironmentResult>;
+  saveConfig(config: ConfigInput): Promise<void>;
+  testConnectivity(config: ConfigInput): Promise<ConnectivityResult>;
+}
