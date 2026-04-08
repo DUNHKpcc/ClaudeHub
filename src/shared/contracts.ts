@@ -9,10 +9,12 @@ export interface DetectEnvironmentResult {
 export type ConnectivityResult =
   | {
       ok: true;
+      message: string;
     }
   | {
       ok: false;
       reason: "missing_key" | "invalid_endpoint" | "auth" | "network" | "timeout";
+      message: string;
     };
 
 export interface InstallRequest {
