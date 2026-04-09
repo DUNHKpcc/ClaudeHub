@@ -9,6 +9,8 @@ import { ConfigForm } from "./components/ConfigForm";
 import { ConnectivityBanner } from "./components/ConnectivityBanner";
 import { DependencyCard } from "./components/DependencyCard";
 
+const blockingDependencyNames = new Set(["node", "git", "claude"]);
+
 export function App() {
   const [environment, setEnvironment] = useState<DetectEnvironmentResult | null>(null);
   const [connectivity, setConnectivity] = useState<ConnectivityResult | null>(null);
@@ -33,11 +35,7 @@ export function App() {
         }
 
         setEnvironment(result);
-        setStatus(
-          result.dependencies.every((dependency) => dependency.state === "installed")
-            ? "Environment ready"
-            : "Environment not ready"
-        );
+        setStatus(hasBlockingDependency(result) ? "Environment not ready" : "Environment ready");
       } catch {
         if (!cancelled) {
           setStatus("Environment detection failed");
@@ -62,7 +60,7 @@ export function App() {
       const result = await api.testConnectivity(input);
       setConnectivity(result);
 
-      if (result.ok) {
+      if (result.ok || result.reason === "network" || result.reason === "timeout") {
         await api.saveConfig(input);
       }
     } catch (error) {
@@ -109,6 +107,12 @@ export function App() {
         </div>
       </section>
     </main>
+  );
+}
+
+function hasBlockingDependency(result: DetectEnvironmentResult): boolean {
+  return result.dependencies.some(
+    (dependency) => blockingDependencyNames.has(dependency.name) && dependency.state !== "installed"
   );
 }
 
