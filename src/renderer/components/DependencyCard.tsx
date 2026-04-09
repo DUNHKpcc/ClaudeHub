@@ -23,6 +23,12 @@ export function DependencyCard({ dependency }: DependencyCardProps) {
           <dt style={termStyle}>Path</dt>
           <dd style={definitionStyle}>{dependency.path ?? "Not detected"}</dd>
         </div>
+        {dependency.message ? (
+          <div>
+            <dt style={termStyle}>Message</dt>
+            <dd style={definitionStyle}>{dependency.message}</dd>
+          </div>
+        ) : null}
       </dl>
     </article>
   );

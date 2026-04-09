@@ -13,9 +13,17 @@ export function ConfigForm({ onSubmit }: ConfigFormProps) {
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState<(typeof supportedModels)[number]>(supportedModels[1]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationMessage, setValidationMessage] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!apiKey.trim()) {
+      setValidationMessage("Anthropic API Key is required.");
+      return;
+    }
+
+    setValidationMessage("");
     setIsSubmitting(true);
 
     try {
@@ -32,8 +40,14 @@ export function ConfigForm({ onSubmit }: ConfigFormProps) {
         <input
           aria-label="Anthropic API Key"
           type="password"
+          required
           value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
+          onChange={(event) => {
+            setApiKey(event.target.value);
+            if (validationMessage) {
+              setValidationMessage("");
+            }
+          }}
           style={inputStyle}
         />
       </label>
@@ -69,6 +83,8 @@ export function ConfigForm({ onSubmit }: ConfigFormProps) {
       <button type="submit" disabled={isSubmitting} style={buttonStyle}>
         Save Configuration
       </button>
+
+      {validationMessage ? <p style={validationStyle}>{validationMessage}</p> : null}
     </form>
   );
 }
@@ -107,4 +123,10 @@ const buttonStyle: CSSProperties = {
   font: "inherit",
   fontWeight: 700,
   cursor: "pointer"
+};
+
+const validationStyle: CSSProperties = {
+  margin: 0,
+  color: "#fca5a5",
+  fontSize: 14
 };

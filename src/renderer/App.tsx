@@ -33,7 +33,11 @@ export function App() {
         }
 
         setEnvironment(result);
-        setStatus("Environment ready");
+        setStatus(
+          result.dependencies.every((dependency) => dependency.state === "installed")
+            ? "Environment ready"
+            : "Environment not ready"
+        );
       } catch {
         if (!cancelled) {
           setStatus("Environment detection failed");
@@ -49,9 +53,27 @@ export function App() {
   }, []);
 
   async function handleSave(input: ConfigInput) {
-    await window.pclaude.saveConfig(input);
-    const result = await window.pclaude.testConnectivity(input);
-    setConnectivity(result);
+    try {
+      const api = window.pclaude;
+      if (!api) {
+        throw new Error("Renderer API is unavailable.");
+      }
+
+      const result = await api.testConnectivity(input);
+      setConnectivity(result);
+
+      if (result.ok) {
+        await api.saveConfig(input);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save configuration.";
+
+      setConnectivity({
+        ok: false,
+        reason: "network",
+        message
+      });
+    }
   }
 
   return (
