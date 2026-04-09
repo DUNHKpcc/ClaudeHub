@@ -10,7 +10,7 @@ function installApi(overrides?: Partial<Window["pclaude"]>) {
       detectEnvironment: vi.fn().mockResolvedValue({
         dependencies: [
           { name: "node", state: "installed", version: "20.0.0", path: "/usr/bin/node" },
-          { name: "npm", state: "missing", message: "npm is missing." },
+          { name: "npm", state: "installed", version: "10.0.0", path: "/usr/bin/npm" },
           { name: "git", state: "installed", version: "2.0.0", path: "/usr/bin/git" },
           { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" }
         ],
@@ -42,11 +42,45 @@ describe("App launch flow", () => {
     Reflect.deleteProperty(window, "pclaude");
   });
 
-  it("treats npm as informational when Claude is already installed", async () => {
+  it("treats npm as blocking when it is missing", async () => {
+    installApi({
+      detectEnvironment: vi.fn().mockResolvedValue({
+        dependencies: [
+          { name: "node", state: "installed", version: "20.0.0", path: "/usr/bin/node" },
+          { name: "npm", state: "missing", message: "npm is missing." },
+          { name: "git", state: "installed", version: "2.0.0", path: "/usr/bin/git" },
+          { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" }
+        ],
+        platform: "darwin",
+        arch: "arm64"
+      })
+    });
+
     render(<App />);
 
-    expect(await screen.findByText("Environment ready")).toBeInTheDocument();
+    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
     expect(screen.getByText("npm is missing.")).toBeInTheDocument();
+  });
+
+  it("treats outdated node as blocking for launch gating", async () => {
+    installApi({
+      detectEnvironment: vi.fn().mockResolvedValue({
+        dependencies: [
+          { name: "node", state: "outdated", version: "17.9.0", path: "/usr/bin/node" },
+          { name: "npm", state: "installed", version: "10.0.0", path: "/usr/bin/npm" },
+          { name: "git", state: "installed", version: "2.0.0", path: "/usr/bin/git" },
+          { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" }
+        ],
+        platform: "darwin",
+        arch: "arm64"
+      }),
+      launchClaudeCode: vi.fn().mockResolvedValue(4242)
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Launch Claude Code" })).toBeDisabled();
   });
 
   it("launches Claude Code from the renderer when the launch action is clicked", async () => {

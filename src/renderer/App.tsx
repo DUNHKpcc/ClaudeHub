@@ -10,7 +10,6 @@ import { ConnectivityBanner } from "./components/ConnectivityBanner";
 import { DependencyCard } from "./components/DependencyCard";
 import { InstallActions } from "./components/InstallActions";
 
-const blockingDependencyNames = new Set(["git", "claude"]);
 type RendererApi = Window["pclaude"] & {
   launchClaudeCode?: () => Promise<number>;
 };
@@ -46,7 +45,7 @@ export function App() {
       }
 
       setEnvironment(result);
-      setStatus(hasBlockingDependency(result) ? "Environment not ready" : "Environment ready");
+      setStatus(isEnvironmentReady(result) ? "Environment ready" : "Environment not ready");
     } catch {
       if (!isCancelled?.()) {
         setStatus("Environment detection failed");
@@ -143,7 +142,7 @@ export function App() {
         </div>
         <InstallActions
           launchAvailable={Boolean((window.pclaude as RendererApi | undefined)?.launchClaudeCode)}
-          launchEnabled={environment !== null && !hasBlockingDependency(environment)}
+          launchEnabled={environment !== null && isEnvironmentReady(environment)}
           onInstall={handleInstall}
           onLaunch={handleLaunch}
         />
@@ -164,16 +163,15 @@ export function App() {
   );
 }
 
-function hasBlockingDependency(result: DetectEnvironmentResult): boolean {
-  return result.dependencies.some(
-    (dependency) => blockingDependencyNames.has(dependency.name) && dependency.state !== "installed"
-  );
+function isEnvironmentReady(result: DetectEnvironmentResult): boolean {
+  return result.dependencies.every((dependency) => dependency.state === "installed");
 }
 
 function buildInstallStatusMessage(result: InstallResult): string {
   const stepMessages = result.steps
-    .map((step) => step.message)
+    .map((step) => step.message?.trim())
     .filter((message): message is string => Boolean(message));
+  const suffix = formatInstallMessages(stepMessages);
 
   if (result.steps.length === 0) {
     return result.ok
@@ -185,10 +183,20 @@ function buildInstallStatusMessage(result: InstallResult): string {
   const failedSteps = result.steps.filter((step) => step.state === "failed").length;
 
   if (failedSteps > 0) {
-    return `Install attempt completed with ${completedSteps} completed step(s) and ${failedSteps} failed step(s). ${stepMessages.join(" ")}`.trim();
+    return `Install attempt completed with ${completedSteps} completed step(s) and ${failedSteps} failed step(s).${suffix}`;
   }
 
-  return `Install attempt completed successfully with ${completedSteps} completed step(s). ${stepMessages.join(" ")}`.trim();
+  return `Install attempt completed successfully with ${completedSteps} completed step(s).${suffix}`;
+}
+
+function formatInstallMessages(messages: string[]): string {
+  const uniqueMessages = Array.from(new Set(messages));
+
+  if (uniqueMessages.length === 0) {
+    return "";
+  }
+
+  return ` ${uniqueMessages.join(" ")}`;
 }
 
 const mainStyle: CSSProperties = {

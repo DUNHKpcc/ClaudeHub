@@ -10,7 +10,7 @@ function installApi(overrides?: Partial<Window["pclaude"]> & { launchClaudeCode?
       detectEnvironment: vi.fn().mockResolvedValue({
         dependencies: [
           { name: "node", state: "installed", version: "20.0.0", path: "/usr/bin/node" },
-          { name: "npm", state: "missing", message: "npm is missing." },
+          { name: "npm", state: "installed", version: "10.0.0", path: "/usr/bin/npm" },
           { name: "git", state: "installed", version: "2.0.0", path: "/usr/bin/git" },
           { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" }
         ],
@@ -56,7 +56,7 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a ready status when only npm is missing", async () => {
+  it("shows a not-ready status when npm is missing", async () => {
     installApi({
       detectEnvironment: vi.fn().mockResolvedValue({
         dependencies: [
@@ -72,8 +72,28 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Environment ready")).toBeInTheDocument();
+    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
     expect(screen.getByText("npm is missing.")).toBeInTheDocument();
+  });
+
+  it("shows a not-ready status when a dependency is outdated", async () => {
+    installApi({
+      detectEnvironment: vi.fn().mockResolvedValue({
+        dependencies: [
+          { name: "node", state: "outdated", version: "17.9.0", path: "/usr/bin/node" },
+          { name: "npm", state: "installed", version: "10.0.0", path: "/usr/bin/npm" },
+          { name: "git", state: "installed", version: "2.0.0", path: "/usr/bin/git" },
+          { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" }
+        ],
+        platform: "darwin",
+        arch: "arm64"
+      })
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
+    expect(screen.getByText("outdated")).toBeInTheDocument();
   });
 
   it("shows a not-ready status when a blocking dependency is missing", async () => {
@@ -173,6 +193,26 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("omits install message suffixes when step messages are absent", async () => {
+    installApi({
+      installMissing: vi.fn().mockResolvedValue({
+        ok: false,
+        steps: [
+          { name: "node", state: "completed" },
+          { name: "git", state: "failed" }
+        ]
+      })
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Install Missing Dependencies" }));
+
+    expect(
+      await screen.findByText("Install attempt completed with 1 completed step(s) and 1 failed step(s).")
+    ).toBeInTheDocument();
+  });
+
   it("calls the launch API when it is present", async () => {
     const launchClaudeCode = vi.fn().mockResolvedValue(4242);
     installApi({
@@ -202,6 +242,27 @@ describe("App", () => {
     });
 
     expect(await screen.findByText("Claude Code launched with PID 4242.")).toBeInTheDocument();
+  });
+
+  it("keeps launch disabled when the environment is not ready", async () => {
+    installApi({
+      launchClaudeCode: vi.fn().mockResolvedValue(4242),
+      detectEnvironment: vi.fn().mockResolvedValue({
+        dependencies: [
+          { name: "node", state: "installed", version: "20.0.0", path: "/usr/bin/node" },
+          { name: "npm", state: "installed", version: "10.0.0", path: "/usr/bin/npm" },
+          { name: "git", state: "missing", message: "git is missing." },
+          { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" }
+        ],
+        platform: "darwin",
+        arch: "arm64"
+      })
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Launch Claude Code" })).toBeDisabled();
   });
 
   it("surfaces a clear launch error when configuration has not been saved", async () => {
