@@ -3,11 +3,13 @@ import type { CSSProperties } from "react";
 interface InstallActionsProps {
   onInstall: () => void | Promise<void>;
   onLaunch?: () => void | Promise<void>;
+  installInProgress?: boolean;
   launchAvailable?: boolean;
   launchEnabled?: boolean;
 }
 
 export function InstallActions({
+  installInProgress = false,
   launchAvailable = false,
   launchEnabled = false,
   onInstall,
@@ -18,10 +20,20 @@ export function InstallActions({
       <section style={actionCardStyle}>
         <div style={copyStackStyle}>
           <h3 style={titleStyle}>Install Missing Dependencies</h3>
-          <p style={copyStyle}>Run the detected install flow against the local toolchain.</p>
+          <p style={copyStyle}>
+            {installInProgress
+              ? "Installer is running. Keep this window open while dependencies are being fetched and verified."
+              : "Run the detected install flow against the local toolchain."}
+          </p>
         </div>
-        <button style={buttonStyle} type="button" onClick={() => void onInstall()}>
-          Install Missing Dependencies
+        <button
+          aria-busy={installInProgress}
+          disabled={installInProgress}
+          style={buttonStyle}
+          type="button"
+          onClick={() => void onInstall()}
+        >
+          {installInProgress ? "Installing Dependencies..." : "Install Missing Dependencies"}
         </button>
       </section>
 

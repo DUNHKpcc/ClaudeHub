@@ -206,6 +206,74 @@ describe("install service", () => {
     });
   });
 
+  it("reports Node progress events including mirror fallback details", async () => {
+    platformMock.mockReturnValue("win32");
+    archMock.mockReturnValue("x64");
+    (globalThis.fetch as any)
+      .mockRejectedValueOnce(new Error("official failed"))
+      .mockResolvedValueOnce(createFetchResponse("node-msi"));
+
+    const child = new MockChildProcess();
+    spawnMock.mockReturnValue(child);
+    const report = vi.fn();
+
+    const resultPromise = runInstallPlan(["node"], report);
+
+    await vi.waitFor(() => {
+      expect(report).toHaveBeenCalledWith({
+        dependency: "node",
+        stage: "downloading",
+        message: "Official node download failed. Retrying with the Ali mirror..."
+      });
+    });
+
+    child.emit("close", 0);
+
+    await resultPromise;
+
+    expect(report).toHaveBeenCalledWith({
+      dependency: "node",
+      stage: "completed",
+      message: "Installed node using the Ali mirror fallback."
+    });
+  });
+
+  it("installs the Node pkg on macOS", async () => {
+    platformMock.mockReturnValue("darwin");
+    archMock.mockReturnValue("arm64");
+    (globalThis.fetch as any).mockResolvedValue(createFetchResponse("node-pkg"));
+
+    const child = new MockChildProcess();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = runInstallPlan(["node"]);
+
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "https://nodejs.org/download/release/v22.22.2/node-v22.22.2.pkg"
+      );
+    });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "/usr/sbin/installer",
+      ["-pkg", "/tmp/pclaude-installer/node-v22.22.2.pkg", "-target", "/"],
+      { stdio: "inherit" }
+    );
+
+    child.emit("close", 0);
+
+    await expect(resultPromise).resolves.toEqual({
+      ok: true,
+      steps: [
+        {
+          name: "node",
+          state: "completed",
+          message: "Installed node from the official source."
+        }
+      ]
+    });
+  });
+
   it("uses winget to install Git on Windows when available", async () => {
     platformMock.mockReturnValue("win32");
     archMock.mockReturnValue("x64");
@@ -247,6 +315,65 @@ describe("install service", () => {
     });
   });
 
+  it("falls back to the Git for Windows installer when winget fails", async () => {
+    platformMock.mockReturnValue("win32");
+    archMock.mockReturnValue("x64");
+    (globalThis.fetch as any).mockResolvedValue(createFetchResponse("git-exe"));
+
+    const wingetChild = new MockChildProcess();
+    const installerChild = new MockChildProcess();
+    spawnMock.mockReturnValueOnce(wingetChild).mockReturnValueOnce(installerChild);
+
+    const resultPromise = runInstallPlan(["git"]);
+
+    await vi.waitFor(() => {
+      expect(spawnMock).toHaveBeenNthCalledWith(
+        1,
+        "winget",
+        [
+          "install",
+          "--id",
+          "Git.Git",
+          "-e",
+          "--source",
+          "winget",
+          "--accept-package-agreements",
+          "--accept-source-agreements",
+          "--disable-interactivity"
+        ],
+        { stdio: "inherit" }
+      );
+    });
+
+    wingetChild.emit("close", 1);
+
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "https://github.com/git-for-windows/git/releases/download/v2.53.0.windows.2/Git-2.53.0.2-64-bit.exe"
+      );
+    });
+
+    expect(spawnMock).toHaveBeenNthCalledWith(
+      2,
+      "/tmp/pclaude-installer/Git-2.53.0.2-64-bit.exe",
+      ["/VERYSILENT", "/NORESTART", "/SP-"],
+      { stdio: "inherit" }
+    );
+
+    installerChild.emit("close", 0);
+
+    await expect(resultPromise).resolves.toEqual({
+      ok: true,
+      steps: [
+        {
+          name: "git",
+          state: "completed",
+          message: "Installed git using the official installer fallback."
+        }
+      ]
+    });
+  });
+
   it("keeps Git as a manual action on macOS", async () => {
     platformMock.mockReturnValue("darwin");
 
@@ -259,6 +386,24 @@ describe("install service", () => {
           message: "Manual install required for git on macOS. Install Xcode Command Line Tools or Homebrew Git."
         }
       ]
+    });
+  });
+
+  it("reports manual Git guidance on macOS", async () => {
+    platformMock.mockReturnValue("darwin");
+    const report = vi.fn();
+
+    await runInstallPlan(["git"], report);
+
+    expect(report).toHaveBeenCalledWith({
+      dependency: "git",
+      stage: "manual",
+      message: "Git still requires a manual install on macOS. Use Xcode Command Line Tools or Homebrew Git."
+    });
+    expect(report).toHaveBeenCalledWith({
+      dependency: "git",
+      stage: "failed",
+      message: "Manual install required for git on macOS. Install Xcode Command Line Tools or Homebrew Git."
     });
   });
 

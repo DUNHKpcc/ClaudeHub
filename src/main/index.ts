@@ -22,10 +22,12 @@ async function createWindow() {
 
 function registerIpcHandlers() {
   ipcMain.handle(IPC_CHANNELS.detectEnvironment, () => detectEnvironment());
-  ipcMain.handle(IPC_CHANNELS.installMissing, async () => {
+  ipcMain.handle(IPC_CHANNELS.installMissing, async (event) => {
     const environment = await detectEnvironment();
     const plan = buildInstallPlan(environment.dependencies);
-    return runInstallPlan(plan);
+    return runInstallPlan(plan, (progress) => {
+      event.sender.send(IPC_CHANNELS.installProgress, progress);
+    });
   });
   ipcMain.handle(IPC_CHANNELS.launchClaudeCode, () => launchClaudeCode());
   ipcMain.handle(IPC_CHANNELS.saveConfig, (_event, config) => saveConfig(config));

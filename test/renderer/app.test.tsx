@@ -2,8 +2,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../../src/renderer/App";
+import type { InstallProgressEvent } from "../../src/shared/contracts";
 
-function installApi(overrides?: Partial<Window["pclaude"]> & { launchClaudeCode?: () => Promise<number> }) {
+function installApi(
+  overrides?: Partial<Window["pclaude"]> & {
+    launchClaudeCode?: () => Promise<number>;
+    onInstallProgress?: (listener: (event: InstallProgressEvent) => void) => void | (() => void);
+  }
+) {
   Object.defineProperty(window, "pclaude", {
     configurable: true,
     value: {
@@ -191,6 +197,10 @@ describe("App", () => {
         "Install attempt completed with 1 completed step(s) and 1 failed step(s). Manual install required for git."
       )
     ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Latest Install Report" })).toBeInTheDocument();
+    expect(screen.getByText("Manual install required for git.")).toBeInTheDocument();
+    expect(screen.getAllByText("completed").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("failed").length).toBeGreaterThan(0);
   });
 
   it("omits install message suffixes when step messages are absent", async () => {
@@ -211,6 +221,75 @@ describe("App", () => {
     expect(
       await screen.findByText("Install attempt completed with 1 completed step(s) and 1 failed step(s).")
     ).toBeInTheDocument();
+  });
+
+  it("shows live install progress updates while an install is running", async () => {
+    let resolveInstall: ((value: { ok: boolean; steps: Array<{ name: string; state: string }> }) => void) | undefined;
+    let pushProgress: ((event: InstallProgressEvent) => void) | undefined;
+
+    installApi({
+      installMissing: vi.fn().mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveInstall = resolve;
+          })
+      ),
+      onInstallProgress: vi.fn().mockImplementation((listener) => {
+        pushProgress = listener;
+        return () => {
+          pushProgress = undefined;
+        };
+      })
+    });
+
+    render(<App />);
+
+    const installButton = screen.getByRole("button", { name: "Install Missing Dependencies" });
+    fireEvent.click(installButton);
+
+    await waitFor(() => {
+      expect(installButton).toBeDisabled();
+    });
+
+    pushProgress?.({
+      dependency: "node",
+      stage: "downloading",
+      message: "Downloading node from the official source..."
+    });
+
+    expect(await screen.findByRole("heading", { name: "Install Progress" })).toBeInTheDocument();
+    expect(screen.getAllByText("Downloading node from the official source...").length).toBeGreaterThan(0);
+    expect(screen.getByText("downloading")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Installing Dependencies..." })).toBeDisabled();
+
+    resolveInstall?.({
+      ok: true,
+      steps: [{ name: "node", state: "completed" }]
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Install Missing Dependencies" })).toBeEnabled();
+    });
+  });
+
+  it("renders the most recent install report as a step list", async () => {
+    installApi({
+      installMissing: vi.fn().mockResolvedValue({
+        ok: true,
+        steps: [
+          { name: "node", state: "completed", message: "Installed node from the official source." },
+          { name: "claude", state: "completed", message: "Installed claude from the official source." }
+        ]
+      })
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Install Missing Dependencies" }));
+
+    expect(await screen.findByRole("heading", { name: "Latest Install Report" })).toBeInTheDocument();
+    expect(screen.getByText("Installed node from the official source.")).toBeInTheDocument();
+    expect(screen.getByText("Installed claude from the official source.")).toBeInTheDocument();
   });
 
   it("calls the launch API when it is present", async () => {

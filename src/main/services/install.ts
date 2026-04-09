@@ -3,13 +3,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { InstallResult } from "../../shared/contracts";
+import type { InstallProgressEvent, InstallResult } from "../../shared/contracts";
 import type { DependencyStatus } from "../../shared/schemas";
 import { detectEnvironment } from "./environment";
 
 type InstallableDependencyName = "node" | "git" | "claude";
 type InstallStepResult = InstallResult["steps"][number];
 type InstallSourceLabel = "official" | "ali";
+type InstallProgressReporter = (event: InstallProgressEvent) => void;
 
 interface DownloadSource {
   fileName: string;
@@ -76,6 +77,15 @@ function formatSourceMessage(name: InstallableDependencyName, label: InstallSour
   return `Installed ${name} using the Ali mirror fallback.`;
 }
 
+function emitProgress(
+  report: InstallProgressReporter | undefined,
+  dependency: InstallableDependencyName,
+  stage: InstallProgressEvent["stage"],
+  message: string
+) {
+  report?.({ dependency, stage, message });
+}
+
 function buildNodeSources(platform: NodeJS.Platform, arch: string): DownloadSource[] {
   const fileName =
     platform === "win32"
@@ -109,7 +119,11 @@ function buildGitWindowsSource(arch: string): DownloadSource {
   };
 }
 
-async function downloadInstaller(sources: DownloadSource[]): Promise<{ label: InstallSourceLabel; filePath: string }> {
+async function downloadInstaller(
+  dependency: InstallableDependencyName,
+  sources: DownloadSource[],
+  report?: InstallProgressReporter
+): Promise<{ label: InstallSourceLabel; filePath: string }> {
   const installDir = path.join(os.tmpdir(), TEMP_INSTALL_DIR);
   await fs.mkdir(installDir, { recursive: true });
 
@@ -117,6 +131,7 @@ async function downloadInstaller(sources: DownloadSource[]): Promise<{ label: In
 
   for (const source of sources) {
     try {
+      emitProgress(report, dependency, "downloading", `Downloading ${dependency} from the ${source.label} source...`);
       const response = await fetch(source.url);
 
       if (!response.ok) {
@@ -133,13 +148,23 @@ async function downloadInstaller(sources: DownloadSource[]): Promise<{ label: In
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Download failed.");
+
+      if (source.label === "official" && sources.some((candidate) => candidate.label === "ali")) {
+        emitProgress(
+          report,
+          dependency,
+          "downloading",
+          `Official ${dependency} download failed. Retrying with the Ali mirror...`
+        );
+      }
     }
   }
 
   throw lastError ?? new Error("Download failed.");
 }
 
-async function verifyInstalled(name: InstallableDependencyName): Promise<void> {
+async function verifyInstalled(name: InstallableDependencyName, report?: InstallProgressReporter): Promise<void> {
+  emitProgress(report, name, "verifying", `Verifying ${name} after installation...`);
   const environment = await detectEnvironment();
   const dependencies = environment.dependencies.filter((dependency) =>
     name === "node" ? dependency.name === "node" || dependency.name === "npm" : dependency.name === name
@@ -150,21 +175,23 @@ async function verifyInstalled(name: InstallableDependencyName): Promise<void> {
   }
 }
 
-async function installNode(): Promise<InstallStepResult> {
+async function installNode(report?: InstallProgressReporter): Promise<InstallStepResult> {
   const platform = os.platform();
   const arch = os.arch();
-  const download = await downloadInstaller(buildNodeSources(platform, arch));
+  const download = await downloadInstaller("node", buildNodeSources(platform, arch), report);
 
   try {
     if (platform === "win32") {
+      emitProgress(report, "node", "installing", "Installing Node.js on Windows...");
       await runCommand("msiexec.exe", ["/i", download.filePath, "/qn", "/norestart"]);
     } else if (platform === "darwin") {
+      emitProgress(report, "node", "installing", "Installing Node.js on macOS...");
       await runCommand("/usr/sbin/installer", ["-pkg", download.filePath, "-target", "/"]);
     } else {
       throw new Error(`Unsupported platform for node installation: ${platform}.`);
     }
 
-    await verifyInstalled("node");
+    await verifyInstalled("node", report);
 
     return {
       name: "node",
@@ -176,10 +203,16 @@ async function installNode(): Promise<InstallStepResult> {
   }
 }
 
-async function installGit(): Promise<InstallStepResult> {
+async function installGit(report?: InstallProgressReporter): Promise<InstallStepResult> {
   const platform = os.platform();
 
   if (platform !== "win32") {
+    emitProgress(
+      report,
+      "git",
+      "manual",
+      "Git still requires a manual install on macOS. Use Xcode Command Line Tools or Homebrew Git."
+    );
     return {
       name: "git",
       state: "failed",
@@ -188,6 +221,7 @@ async function installGit(): Promise<InstallStepResult> {
   }
 
   try {
+    emitProgress(report, "git", "installing", "Installing Git with winget...");
     await runCommand("winget", [
       "install",
       "--id",
@@ -200,7 +234,7 @@ async function installGit(): Promise<InstallStepResult> {
       "--disable-interactivity"
     ]);
 
-    await verifyInstalled("git");
+    await verifyInstalled("git", report);
 
     return {
       name: "git",
@@ -208,11 +242,13 @@ async function installGit(): Promise<InstallStepResult> {
       message: formatSourceMessage("git", "official")
     };
   } catch {
-    const download = await downloadInstaller([buildGitWindowsSource(os.arch())]);
+    emitProgress(report, "git", "downloading", "winget install failed. Downloading the official Git installer...");
+    const download = await downloadInstaller("git", [buildGitWindowsSource(os.arch())], report);
 
     try {
+      emitProgress(report, "git", "installing", "Running the Git for Windows installer...");
       await runCommand(download.filePath, ["/VERYSILENT", "/NORESTART", "/SP-"]);
-      await verifyInstalled("git");
+      await verifyInstalled("git", report);
 
       return {
         name: "git",
@@ -225,10 +261,16 @@ async function installGit(): Promise<InstallStepResult> {
   }
 }
 
-async function installClaude(): Promise<InstallStepResult> {
+async function installClaude(report?: InstallProgressReporter): Promise<InstallStepResult> {
   const platform = os.platform();
   const isWindows = platform === "win32";
 
+  emitProgress(
+    report,
+    "claude",
+    "installing",
+    isWindows ? "Installing Claude Code with the official Windows script..." : "Installing Claude Code with the official shell script..."
+  );
   await runCommand(
     isWindows ? "powershell" : "bash",
     isWindows
@@ -236,7 +278,7 @@ async function installClaude(): Promise<InstallStepResult> {
       : ["-lc", "curl -fsSL https://claude.ai/install.sh | bash"]
   );
 
-  await verifyInstalled("claude");
+  await verifyInstalled("claude", report);
 
   return {
     name: "claude",
@@ -245,25 +287,33 @@ async function installClaude(): Promise<InstallStepResult> {
   };
 }
 
-export async function runInstallPlan(plan: InstallableDependencyName[]): Promise<InstallResult> {
+export async function runInstallPlan(
+  plan: InstallableDependencyName[],
+  report?: InstallProgressReporter
+): Promise<InstallResult> {
   const steps: InstallStepResult[] = [];
 
   for (const name of plan) {
     try {
+      emitProgress(report, name, "queued", `Preparing ${name} installation...`);
       const step =
         name === "node"
-          ? await installNode()
+          ? await installNode(report)
           : name === "git"
-            ? await installGit()
-            : await installClaude();
+            ? await installGit(report)
+            : await installClaude(report);
 
       steps.push(step);
+      emitProgress(report, name, step.state, step.message ?? `${name} installed.`);
     } catch (error) {
-      steps.push({
+      const failure = {
         name,
         state: "failed",
         message: error instanceof Error ? error.message : `${name} installation failed.`
-      });
+      } as const;
+
+      steps.push(failure);
+      emitProgress(report, name, "failed", failure.message);
     }
   }
 

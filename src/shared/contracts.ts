@@ -21,6 +21,12 @@ export interface InstallRequest {
   dependencies: Array<"node" | "git" | "claude">;
 }
 
+export interface InstallProgressEvent {
+  dependency: "node" | "git" | "claude";
+  stage: "queued" | "downloading" | "installing" | "verifying" | "completed" | "failed" | "manual";
+  message: string;
+}
+
 export interface InstallResult {
   ok: boolean;
   steps: Array<{
@@ -33,6 +39,7 @@ export interface InstallResult {
 export interface PClaudeApi {
   detectEnvironment(): Promise<DetectEnvironmentResult>;
   installMissing(): Promise<InstallResult>;
+  onInstallProgress?(listener: (event: InstallProgressEvent) => void): () => void;
   launchClaudeCode?(): Promise<number>;
   saveConfig(config: ConfigInput): Promise<void>;
   testConnectivity(config: ConfigInput): Promise<ConnectivityResult>;
