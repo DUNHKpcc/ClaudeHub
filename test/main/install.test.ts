@@ -140,7 +140,8 @@ describe("install service", () => {
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        "https://nodejs.org/download/release/v22.22.2/node-v22.22.2-x64.msi"
+        "https://nodejs.org/download/release/v22.22.2/node-v22.22.2-x64.msi",
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
     });
 
@@ -173,6 +174,7 @@ describe("install service", () => {
     archMock.mockReturnValue("x64");
     (globalThis.fetch as any)
       .mockRejectedValueOnce(new Error("official failed"))
+      .mockRejectedValueOnce(new Error("official failed again"))
       .mockResolvedValueOnce(createFetchResponse("node-msi"));
 
     const child = new MockChildProcess();
@@ -182,14 +184,21 @@ describe("install service", () => {
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenNthCalledWith(
-        2,
-        "https://npmmirror.com/mirrors/node/v22.22.2/node-v22.22.2-x64.msi"
+        3,
+        "https://npmmirror.com/mirrors/node/v22.22.2/node-v22.22.2-x64.msi",
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
     });
 
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
       1,
-      "https://nodejs.org/download/release/v22.22.2/node-v22.22.2-x64.msi"
+      "https://nodejs.org/download/release/v22.22.2/node-v22.22.2-x64.msi",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      2,
+      "https://nodejs.org/download/release/v22.22.2/node-v22.22.2-x64.msi",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
 
     child.emit("close", 0);
@@ -211,6 +220,7 @@ describe("install service", () => {
     archMock.mockReturnValue("x64");
     (globalThis.fetch as any)
       .mockRejectedValueOnce(new Error("official failed"))
+      .mockRejectedValueOnce(new Error("official failed again"))
       .mockResolvedValueOnce(createFetchResponse("node-msi"));
 
     const child = new MockChildProcess();
@@ -250,7 +260,8 @@ describe("install service", () => {
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        "https://nodejs.org/download/release/v22.22.2/node-v22.22.2.pkg"
+        "https://nodejs.org/download/release/v22.22.2/node-v22.22.2.pkg",
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
     });
 
@@ -349,7 +360,8 @@ describe("install service", () => {
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        "https://github.com/git-for-windows/git/releases/download/v2.53.0.windows.2/Git-2.53.0.2-64-bit.exe"
+        "https://github.com/git-for-windows/git/releases/download/v2.53.0.windows.2/Git-2.53.0.2-64-bit.exe",
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
     });
 
@@ -404,6 +416,68 @@ describe("install service", () => {
       dependency: "git",
       stage: "failed",
       message: "Manual install required for git on macOS. Install Xcode Command Line Tools or Homebrew Git."
+    });
+  });
+
+  it("surfaces a timeout-friendly download error", async () => {
+    platformMock.mockReturnValue("win32");
+    archMock.mockReturnValue("x64");
+    const timeoutError = new Error("timed out");
+    timeoutError.name = "AbortError";
+    (globalThis.fetch as any).mockRejectedValue(timeoutError);
+
+    await expect(runInstallPlan(["node"])).resolves.toEqual({
+      ok: false,
+      steps: [
+        {
+          name: "node",
+          state: "failed",
+          message: "node download timed out. Check your network or proxy settings and try again."
+        }
+      ]
+    });
+  });
+
+  it("suggests restarting when verification fails after install", async () => {
+    platformMock.mockReturnValue("win32");
+    archMock.mockReturnValue("x64");
+    (globalThis.fetch as any).mockResolvedValue(createFetchResponse("node-msi"));
+    detectEnvironmentMock.mockResolvedValueOnce({
+      dependencies: [
+        { name: "node", state: "missing", message: "node was not found on PATH." },
+        { name: "npm", state: "missing", message: "npm was not found on PATH." },
+        { name: "git", state: "installed", version: "2.53.0", path: "/usr/bin/git" },
+        { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" }
+      ],
+      platform: "win32",
+      arch: "x64"
+    });
+
+    const child = new MockChildProcess();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = runInstallPlan(["node"]);
+
+    await vi.waitFor(() => {
+      expect(spawnMock).toHaveBeenCalledWith(
+        "msiexec.exe",
+        ["/i", "/tmp/pclaude-installer/node-v22.22.2-x64.msi", "/qn", "/norestart"],
+        { stdio: "inherit" }
+      );
+    });
+
+    child.emit("close", 0);
+
+    await expect(resultPromise).resolves.toEqual({
+      ok: false,
+      steps: [
+        {
+          name: "node",
+          state: "failed",
+          message:
+            "node installed but could not be verified on PATH. Restart PClaude Installer or open a new terminal session, then run detection again."
+        }
+      ]
     });
   });
 

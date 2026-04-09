@@ -24,6 +24,8 @@ const pendingStates = new Set<DependencyStatus["state"]>(["missing", "outdated"]
 const NODE_VERSION = "22.22.2";
 const GIT_WINDOWS_VERSION = "2.53.0.2";
 const TEMP_INSTALL_DIR = "pclaude-installer";
+const DOWNLOAD_TIMEOUT_MS = 15_000;
+const DOWNLOAD_ATTEMPTS_PER_SOURCE = 2;
 
 export function buildInstallPlan(dependencies: DependencyStatus[]): InstallableDependencyName[] {
   const plan = new Set<InstallableDependencyName>();
@@ -86,6 +88,40 @@ function emitProgress(
   report?.({ dependency, stage, message });
 }
 
+function createDownloadTimeoutError(dependency: InstallableDependencyName): Error {
+  const error = new Error(`${dependency} download timed out after ${DOWNLOAD_TIMEOUT_MS}ms.`);
+  error.name = "AbortError";
+  return error;
+}
+
+function normalizeInstallError(name: InstallableDependencyName, error: unknown): Error {
+  if (error instanceof Error) {
+    const systemError = error as NodeJS.ErrnoException;
+
+    if (error.name === "AbortError") {
+      return new Error(`${name} download timed out. Check your network or proxy settings and try again.`);
+    }
+
+    if (systemError.code === "EACCES" || systemError.code === "EPERM") {
+      return new Error(`Permission denied while installing ${name}. Try running the installer with elevated permissions.`);
+    }
+
+    if (systemError.code === "ENOENT") {
+      return new Error(`${name} installer command was not found. Restart PClaude Installer or re-run the install flow.`);
+    }
+
+    if (error.message.includes("verification failed")) {
+      return new Error(
+        `${name} installed but could not be verified on PATH. Restart PClaude Installer or open a new terminal session, then run detection again.`
+      );
+    }
+
+    return error;
+  }
+
+  return new Error(`${name} installation failed.`);
+}
+
 function buildNodeSources(platform: NodeJS.Platform, arch: string): DownloadSource[] {
   const fileName =
     platform === "win32"
@@ -130,32 +166,56 @@ async function downloadInstaller(
   let lastError: Error | null = null;
 
   for (const source of sources) {
-    try {
-      emitProgress(report, dependency, "downloading", `Downloading ${dependency} from the ${source.label} source...`);
-      const response = await fetch(source.url);
-
-      if (!response.ok) {
-        throw new Error(`Download failed with status ${response.status}.`);
-      }
-
-      const filePath = path.join(installDir, source.fileName);
-      const buffer = Buffer.from(await response.arrayBuffer());
-      await fs.writeFile(filePath, buffer);
-
-      return {
-        label: source.label,
-        filePath
-      };
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Download failed.");
-
-      if (source.label === "official" && sources.some((candidate) => candidate.label === "ali")) {
+    for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS_PER_SOURCE; attempt += 1) {
+      try {
         emitProgress(
           report,
           dependency,
           "downloading",
-          `Official ${dependency} download failed. Retrying with the Ali mirror...`
+          `Downloading ${dependency} from the ${source.label} source (attempt ${attempt}/${DOWNLOAD_ATTEMPTS_PER_SOURCE})...`
         );
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(createDownloadTimeoutError(dependency)), DOWNLOAD_TIMEOUT_MS);
+
+        try {
+          const response = await fetch(source.url, { signal: controller.signal });
+
+          if (!response.ok) {
+            throw new Error(`Download failed with status ${response.status}.`);
+          }
+
+          const filePath = path.join(installDir, source.fileName);
+          const buffer = Buffer.from(await response.arrayBuffer());
+          await fs.writeFile(filePath, buffer);
+
+          return {
+            label: source.label,
+            filePath
+          };
+        } finally {
+          clearTimeout(timeout);
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("Download failed.");
+
+        if (attempt < DOWNLOAD_ATTEMPTS_PER_SOURCE) {
+          emitProgress(
+            report,
+            dependency,
+            "downloading",
+            `${source.label === "official" ? "Official" : "Ali mirror"} ${dependency} download failed. Retrying...`
+          );
+          continue;
+        }
+
+        if (source.label === "official" && sources.some((candidate) => candidate.label === "ali")) {
+          emitProgress(
+            report,
+            dependency,
+            "downloading",
+            `Official ${dependency} download failed. Retrying with the Ali mirror...`
+          );
+        }
       }
     }
   }
@@ -306,10 +366,11 @@ export async function runInstallPlan(
       steps.push(step);
       emitProgress(report, name, step.state, step.message ?? `${name} installed.`);
     } catch (error) {
+      const normalizedError = normalizeInstallError(name, error);
       const failure = {
         name,
         state: "failed",
-        message: error instanceof Error ? error.message : `${name} installation failed.`
+        message: normalizedError.message
       } as const;
 
       steps.push(failure);

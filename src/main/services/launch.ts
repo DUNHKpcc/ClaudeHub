@@ -17,6 +17,13 @@ export async function launchClaudeCode(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
     const handleError = (error: Error) => {
       child.off("spawn", handleSpawn);
+      const launchError = error as NodeJS.ErrnoException;
+
+      if (launchError.code === "ENOENT") {
+        reject(new Error("Claude Code was not found on PATH. Re-run install or restart PClaude Installer."));
+        return;
+      }
+
       reject(error);
     };
 

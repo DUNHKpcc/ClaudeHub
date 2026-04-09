@@ -73,4 +73,21 @@ describe("launch service", () => {
 
     await expect(resultPromise).rejects.toThrow("spawn failed");
   });
+
+  it("surfaces a PATH guidance error when claude is missing", async () => {
+    const child = new MockChildProcess();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = launchClaudeCode();
+    const spawnError = new Error("spawn failed") as NodeJS.ErrnoException;
+    spawnError.code = "ENOENT";
+
+    await Promise.resolve();
+
+    child.emit("error", spawnError);
+
+    await expect(resultPromise).rejects.toThrow(
+      "Claude Code was not found on PATH. Re-run install or restart PClaude Installer."
+    );
+  });
 });
