@@ -122,6 +122,28 @@ describe("App", () => {
     expect(screen.getByText("git is missing.")).toBeInTheDocument();
   });
 
+  it("shows macOS git guidance in the next steps panel when git is missing", async () => {
+    installApi({
+      detectEnvironment: vi.fn().mockResolvedValue({
+        dependencies: [
+          { name: "node", state: "installed", version: "20.0.0", path: "/usr/bin/node" },
+          { name: "npm", state: "installed", version: "10.0.0", path: "/usr/bin/npm" },
+          { name: "git", state: "missing", message: "git is missing." },
+          { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" }
+        ],
+        platform: "darwin",
+        arch: "arm64"
+      })
+    });
+
+    render(<App />);
+
+    expect(
+      await screen.findByText("On macOS, install Xcode Command Line Tools or Homebrew Git, then re-check the environment.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Launch stays blocked until every dependency is marked installed.")).toBeInTheDocument();
+  });
+
   it("saves after transient connectivity failures and surfaces save failures", async () => {
     const calls: string[] = [];
     const api = window.pclaude as any;
@@ -290,6 +312,26 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Latest Install Report" })).toBeInTheDocument();
     expect(screen.getByText("Installed node from the official source.")).toBeInTheDocument();
     expect(screen.getByText("Installed claude from the official source.")).toBeInTheDocument();
+  });
+
+  it("shows retry guidance in next steps when an install verification fails", async () => {
+    installApi({
+      installMissing: vi.fn().mockResolvedValue({
+        ok: false,
+        steps: [
+          { name: "node", state: "failed", message: "Node verification failed after installation." },
+          { name: "claude", state: "completed", message: "Installed claude from the official source." }
+        ]
+      })
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Install Missing Dependencies" }));
+
+    expect(
+      await screen.findByText("Re-run Install Missing Dependencies to retry the failed step(s).")
+    ).toBeInTheDocument();
   });
 
   it("calls the launch API when it is present", async () => {

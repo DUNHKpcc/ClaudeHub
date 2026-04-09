@@ -189,6 +189,13 @@ export function App() {
           <InstallProgressPanel entries={installProgress} running={installInProgress} />
         ) : null}
         {lastInstallResult ? <InstallReport result={lastInstallResult} /> : null}
+        <NextStepsPanel
+          connectivity={connectivity}
+          environment={environment}
+          installInProgress={installInProgress}
+          installResult={lastInstallResult}
+          status={status}
+        />
       </section>
 
       <section style={sectionStyle}>
@@ -255,6 +262,48 @@ function InstallProgressPanel({ entries, running }: { entries: InstallProgressEn
   );
 }
 
+function NextStepsPanel({
+  connectivity,
+  environment,
+  installInProgress,
+  installResult,
+  status
+}: {
+  connectivity: ConnectivityResult | null;
+  environment: DetectEnvironmentResult | null;
+  installInProgress: boolean;
+  installResult: InstallResult | null;
+  status: string;
+}) {
+  const steps = buildNextSteps({
+    connectivity,
+    environment,
+    installInProgress,
+    installResult,
+    status
+  });
+
+  if (steps.length === 0) {
+    return null;
+  }
+
+  return (
+    <section style={reportStyle}>
+      <div style={sectionHeadingStyle}>
+        <h3 style={reportTitleStyle}>Next Steps</h3>
+        <p style={sectionCopyStyle}>Use the shortest path to get back to a ready environment.</p>
+      </div>
+      <ul style={reportListStyle}>
+        {steps.map((step) => (
+          <li key={step} style={reportItemStyle}>
+            <p style={reportMessageStyle}>{step}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function isEnvironmentReady(result: DetectEnvironmentResult): boolean {
   return result.dependencies.every((dependency) => dependency.state === "installed");
 }
@@ -314,6 +363,67 @@ function formatInstallProgressMessage(event: InstallProgressEvent): string {
 function formatInstallProgressStatus(entry: InstallProgressEvent): string {
   const message = formatInstallProgressMessage(entry);
   return message || "Installer progress update received.";
+}
+
+function buildNextSteps({
+  connectivity,
+  environment,
+  installInProgress,
+  installResult,
+  status
+}: {
+  connectivity: ConnectivityResult | null;
+  environment: DetectEnvironmentResult | null;
+  installInProgress: boolean;
+  installResult: InstallResult | null;
+  status: string;
+}): string[] {
+  const steps = new Set<string>();
+  const isReady = environment !== null && isEnvironmentReady(environment);
+  const hasBlockingInstallResult = Boolean(installResult?.steps.some((step) => step.state === "failed"));
+  const platform = environment?.platform;
+
+  if (installInProgress) {
+    steps.add("Keep this window open until the install report finishes.");
+  }
+
+  if (!environment) {
+    steps.add("Run a fresh environment check before launching.");
+  } else if (!isReady) {
+    steps.add("Fix the missing dependencies, then run install again.");
+  } else {
+    steps.add("You can launch Claude Code now.");
+  }
+
+  if (platform === "darwin" && environment?.dependencies.some((dependency) => dependency.name === "git" && dependency.state !== "installed")) {
+    steps.add("On macOS, install Xcode Command Line Tools or Homebrew Git, then re-check the environment.");
+  }
+
+  if (hasBlockingInstallResult) {
+    steps.add("Re-run Install Missing Dependencies to retry the failed step(s).");
+  }
+
+  if (connectivity && !connectivity.ok) {
+    if (connectivity.reason === "missing_key") {
+      steps.add("Add your Anthropic API key, then save the configuration again.");
+    } else if (connectivity.reason === "invalid_endpoint") {
+      steps.add("Use a valid Anthropic Base URL before saving the configuration.");
+    } else if (connectivity.reason === "auth") {
+      steps.add("Check the API key and try the connectivity test again.");
+    } else {
+      steps.add("Fix the network or timeout issue, then retry the connectivity test.");
+    }
+  }
+
+  if (/launch flow unavailable|launch disabled|environment not ready/i.test(status)) {
+    steps.add("Launch stays blocked until every dependency is marked installed.");
+  }
+
+  if (environment?.dependencies.some((dependency) => dependency.name === "claude" && dependency.state !== "installed")) {
+    steps.add("Install Claude Code before trying to launch the app.");
+  }
+
+  return Array.from(steps).slice(0, 5);
 }
 
 function attachInstallProgressListener(
