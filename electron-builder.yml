@@ -1,0 +1,14 @@
+appId: com.pclaude.installer
+productName: PClaude Installer
+directories:
+  output: release
+files:
+  - dist-renderer/**
+  - dist-electron/**
+  - package.json
+mac:
+  target:
+    - dmg
+win:
+  target:
+    - nsis

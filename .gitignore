@@ -1,4 +1,6 @@
 node_modules/
 dist-renderer/
 dist-electron/
+release/
+.DS_Store
 docs/

@@ -8,6 +8,7 @@ import type { ConfigInput } from "../shared/schemas";
 import { ConfigForm } from "./components/ConfigForm";
 import { ConnectivityBanner } from "./components/ConnectivityBanner";
 import { DependencyCard } from "./components/DependencyCard";
+import { InstallActions } from "./components/InstallActions";
 
 const blockingDependencyNames = new Set(["node", "git", "claude"]);
 
@@ -17,6 +18,16 @@ export function App() {
   const [status, setStatus] = useState("Detecting local environment...");
 
   useEffect(() => {
+    let cancelled = false;
+
+    void refreshEnvironment(() => cancelled);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function refreshEnvironment(isCancelled?: () => boolean) {
     const api = window.pclaude;
 
     if (!api) {
@@ -24,31 +35,40 @@ export function App() {
       return;
     }
 
-    let cancelled = false;
+    try {
+      const result = await api.detectEnvironment();
 
-    async function detect() {
-      try {
-        const result = await api.detectEnvironment();
+      if (isCancelled?.()) {
+        return;
+      }
 
-        if (cancelled) {
-          return;
-        }
-
-        setEnvironment(result);
-        setStatus(hasBlockingDependency(result) ? "Environment not ready" : "Environment ready");
-      } catch {
-        if (!cancelled) {
-          setStatus("Environment detection failed");
-        }
+      setEnvironment(result);
+      setStatus(hasBlockingDependency(result) ? "Environment not ready" : "Environment ready");
+    } catch {
+      if (!isCancelled?.()) {
+        setStatus("Environment detection failed");
       }
     }
+  }
 
-    void detect();
+  async function handleInstall() {
+    const api = window.pclaude;
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (!api) {
+      setStatus("Install flow failed");
+      return;
+    }
+
+    setStatus("Running install flow...");
+
+    try {
+      await api.installMissing();
+      await refreshEnvironment();
+      setStatus("Install flow completed");
+    } catch {
+      setStatus("Install flow failed");
+    }
+  }
 
   async function handleSave(input: ConfigInput) {
     try {
@@ -93,6 +113,7 @@ export function App() {
             <DependencyCard key={dependency.name} dependency={dependency} />
           ))}
         </div>
+        <InstallActions onInstall={handleInstall} />
       </section>
 
       <section style={sectionStyle}>

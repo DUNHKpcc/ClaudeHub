@@ -21,8 +21,17 @@ export interface InstallRequest {
   dependencies: Array<"node" | "git" | "claude">;
 }
 
+export interface InstallResult {
+  ok: boolean;
+  steps: Array<{
+    name: "node" | "git" | "claude";
+    state: "completed" | "failed";
+  }>;
+}
+
 export interface PClaudeApi {
   detectEnvironment(): Promise<DetectEnvironmentResult>;
+  installMissing(): Promise<InstallResult>;
   saveConfig(config: ConfigInput): Promise<void>;
   testConnectivity(config: ConfigInput): Promise<ConnectivityResult>;
 }
