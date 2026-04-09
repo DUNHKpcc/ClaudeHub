@@ -25,7 +25,7 @@ export interface InstallResult {
   ok: boolean;
   steps: Array<{
     name: "node" | "git" | "claude";
-    state: "completed" | "failed";
+    state: "planned" | "failed";
   }>;
 }
 

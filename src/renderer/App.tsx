@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 
 import { APP_TITLE } from "../shared/ipc";
-import type { ConnectivityResult, DetectEnvironmentResult } from "../shared/contracts";
+import type { ConnectivityResult, DetectEnvironmentResult, InstallResult } from "../shared/contracts";
 import type { ConfigInput } from "../shared/schemas";
 
 import { ConfigForm } from "./components/ConfigForm";
@@ -10,7 +10,7 @@ import { ConnectivityBanner } from "./components/ConnectivityBanner";
 import { DependencyCard } from "./components/DependencyCard";
 import { InstallActions } from "./components/InstallActions";
 
-const blockingDependencyNames = new Set(["node", "git", "claude"]);
+const blockingDependencyNames = new Set(["node", "npm", "git", "claude"]);
 
 export function App() {
   const [environment, setEnvironment] = useState<DetectEnvironmentResult | null>(null);
@@ -59,12 +59,12 @@ export function App() {
       return;
     }
 
-    setStatus("Running install flow...");
+    setStatus("Running simulated install plan...");
 
     try {
-      await api.installMissing();
+      const result = await api.installMissing();
       await refreshEnvironment();
-      setStatus("Install flow completed");
+      setStatus(buildInstallStatusMessage(result));
     } catch {
       setStatus("Install flow failed");
     }
@@ -135,6 +135,23 @@ function hasBlockingDependency(result: DetectEnvironmentResult): boolean {
   return result.dependencies.some(
     (dependency) => blockingDependencyNames.has(dependency.name) && dependency.state !== "installed"
   );
+}
+
+function buildInstallStatusMessage(result: InstallResult): string {
+  if (result.steps.length === 0) {
+    return result.ok
+      ? "No simulated install steps were needed."
+      : "Simulated install plan reported no runnable steps.";
+  }
+
+  const plannedSteps = result.steps.filter((step) => step.state === "planned").length;
+  const failedSteps = result.steps.filter((step) => step.state === "failed").length;
+
+  if (result.ok && failedSteps === 0) {
+    return `Simulated install plan generated ${plannedSteps} step(s); no changes were applied.`;
+  }
+
+  return `Simulated install plan reported ${failedSteps} failed step(s) out of ${result.steps.length}.`;
 }
 
 const mainStyle: CSSProperties = {

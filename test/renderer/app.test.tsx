@@ -22,6 +22,10 @@ function installApi(overrides?: Partial<Window["pclaude"]>) {
         ok: true,
         message: "Connectivity check succeeded."
       }),
+      installMissing: vi.fn().mockResolvedValue({
+        ok: true,
+        steps: []
+      }),
       ...overrides
     }
   });
@@ -42,7 +46,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "PClaude Installer" })).toBeInTheDocument();
   });
 
-  it("shows a ready status when only npm is missing", async () => {
+  it("shows a not-ready status when npm is missing", async () => {
     installApi({
       detectEnvironment: vi.fn().mockResolvedValue({
         dependencies: [
@@ -58,7 +62,7 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Environment ready")).toBeInTheDocument();
+    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
     expect(screen.getByText("npm is missing.")).toBeInTheDocument();
   });
 
@@ -135,5 +139,25 @@ describe("App", () => {
     });
 
     expect(await screen.findByText("Authentication failed. Check your API key.")).toBeInTheDocument();
+  });
+
+  it("reports the install flow as a simulated plan using returned steps", async () => {
+    installApi({
+    installMissing: vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [
+        { name: "node", state: "planned" },
+        { name: "git", state: "planned" }
+      ]
+    })
+  });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Simulate Install Plan" }));
+
+    expect(
+      await screen.findByText("Simulated install plan generated 2 step(s); no changes were applied.")
+    ).toBeInTheDocument();
   });
 });

@@ -8,7 +8,7 @@ export function InstallActions({ onInstall }: InstallActionsProps) {
   return (
     <div style={actionsStyle}>
       <button style={buttonStyle} type="button" onClick={() => void onInstall()}>
-        Install Missing Dependencies
+        Simulate Install Plan
       </button>
     </div>
   );

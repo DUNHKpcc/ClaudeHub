@@ -13,4 +13,15 @@ describe("install service", () => {
       ])
     ).toEqual(["node", "git"]);
   });
+
+  it("uses node as the repair step when npm is missing", () => {
+    expect(
+      buildInstallPlan([
+        { name: "node", state: "installed" },
+        { name: "npm", state: "missing" },
+        { name: "git", state: "installed" },
+        { name: "claude", state: "installed" }
+      ])
+    ).toEqual(["node"]);
+  });
 });
