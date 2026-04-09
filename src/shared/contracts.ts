@@ -25,13 +25,15 @@ export interface InstallResult {
   ok: boolean;
   steps: Array<{
     name: "node" | "git" | "claude";
-    state: "planned" | "failed";
+    state: "completed" | "failed";
+    message?: string;
   }>;
 }
 
 export interface PClaudeApi {
   detectEnvironment(): Promise<DetectEnvironmentResult>;
   installMissing(): Promise<InstallResult>;
+  launchClaudeCode?(): Promise<number>;
   saveConfig(config: ConfigInput): Promise<void>;
   testConnectivity(config: ConfigInput): Promise<ConnectivityResult>;
 }

@@ -2,6 +2,8 @@
   "name": "pclaude-installer",
   "version": "0.1.0",
   "private": true,
+  "description": "Desktop installer and launcher for local Claude Code.",
+  "author": "DPCC",
   "main": "dist-electron/main/index.js",
   "type": "module",
   "engines": {

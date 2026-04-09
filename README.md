@@ -1,6 +1,6 @@
 # PClaude Installer
 
-Desktop MVP for checking local prerequisites, simulating dependency install plans, and saving Anthropic configuration for PClaude.
+Desktop MVP for checking local prerequisites, installing local Claude Code from Anthropic's official online installer, saving Anthropic configuration, and launching Claude Code from PClaude.
 
 ## Development
 
@@ -20,6 +20,8 @@ Desktop MVP for checking local prerequisites, simulating dependency install plan
 ## MVP Scope
 
 - Detect Node.js, npm, Git, and Claude CLI availability.
+- Run the official online Claude Code installer from the desktop app.
+- Surface manual-action failures for dependencies that are detected but not yet auto-installed by the app.
 - Save Anthropic API settings after a connectivity check.
-- Show a simulated install plan for missing or outdated core dependencies.
+- Launch the local Claude Code binary with the saved Anthropic environment.
 - Produce renderer and Electron bundles for release packaging.

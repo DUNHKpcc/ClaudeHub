@@ -10,7 +10,10 @@ import { ConnectivityBanner } from "./components/ConnectivityBanner";
 import { DependencyCard } from "./components/DependencyCard";
 import { InstallActions } from "./components/InstallActions";
 
-const blockingDependencyNames = new Set(["node", "npm", "git", "claude"]);
+const blockingDependencyNames = new Set(["git", "claude"]);
+type RendererApi = Window["pclaude"] & {
+  launchClaudeCode?: () => Promise<number>;
+};
 
 export function App() {
   const [environment, setEnvironment] = useState<DetectEnvironmentResult | null>(null);
@@ -28,7 +31,7 @@ export function App() {
   }, []);
 
   async function refreshEnvironment(isCancelled?: () => boolean) {
-    const api = window.pclaude;
+    const api = window.pclaude as RendererApi | undefined;
 
     if (!api) {
       setStatus("Environment detection failed");
@@ -52,14 +55,14 @@ export function App() {
   }
 
   async function handleInstall() {
-    const api = window.pclaude;
+    const api = window.pclaude as RendererApi | undefined;
 
     if (!api) {
       setStatus("Install flow failed");
       return;
     }
 
-    setStatus("Running simulated install plan...");
+    setStatus("Running install attempt...");
 
     try {
       const result = await api.installMissing();
@@ -67,6 +70,31 @@ export function App() {
       setStatus(buildInstallStatusMessage(result));
     } catch {
       setStatus("Install flow failed");
+    }
+  }
+
+  async function handleLaunch() {
+    const api = window.pclaude as RendererApi | undefined;
+
+    if (!api?.launchClaudeCode) {
+      setStatus("Launch flow unavailable");
+      return;
+    }
+
+    setStatus("Launching Claude Code...");
+
+    try {
+      const pid = await api.launchClaudeCode();
+      setStatus(`Claude Code launched with PID ${pid}.`);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message === "Claude configuration is missing."
+          ? "Save Anthropic configuration before launching Claude Code."
+          : error instanceof Error && error.message
+            ? error.message
+            : "Launch flow failed";
+
+      setStatus(message);
     }
   }
 
@@ -113,7 +141,12 @@ export function App() {
             <DependencyCard key={dependency.name} dependency={dependency} />
           ))}
         </div>
-        <InstallActions onInstall={handleInstall} />
+        <InstallActions
+          launchAvailable={Boolean((window.pclaude as RendererApi | undefined)?.launchClaudeCode)}
+          launchEnabled={environment !== null && !hasBlockingDependency(environment)}
+          onInstall={handleInstall}
+          onLaunch={handleLaunch}
+        />
       </section>
 
       <section style={sectionStyle}>
@@ -138,20 +171,24 @@ function hasBlockingDependency(result: DetectEnvironmentResult): boolean {
 }
 
 function buildInstallStatusMessage(result: InstallResult): string {
+  const stepMessages = result.steps
+    .map((step) => step.message)
+    .filter((message): message is string => Boolean(message));
+
   if (result.steps.length === 0) {
     return result.ok
-      ? "No simulated install steps were needed."
-      : "Simulated install plan reported no runnable steps.";
+      ? "Install attempt completed: nothing needed to change."
+      : "Install attempt reported no runnable steps.";
   }
 
-  const plannedSteps = result.steps.filter((step) => step.state === "planned").length;
+  const completedSteps = result.steps.filter((step) => step.state === "completed").length;
   const failedSteps = result.steps.filter((step) => step.state === "failed").length;
 
-  if (result.ok && failedSteps === 0) {
-    return `Simulated install plan generated ${plannedSteps} step(s); no changes were applied.`;
+  if (failedSteps > 0) {
+    return `Install attempt completed with ${completedSteps} completed step(s) and ${failedSteps} failed step(s). ${stepMessages.join(" ")}`.trim();
   }
 
-  return `Simulated install plan reported ${failedSteps} failed step(s) out of ${result.steps.length}.`;
+  return `Install attempt completed successfully with ${completedSteps} completed step(s). ${stepMessages.join(" ")}`.trim();
 }
 
 const mainStyle: CSSProperties = {

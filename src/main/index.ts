@@ -5,6 +5,7 @@ import { detectEnvironment } from "./services/environment";
 import { saveConfig } from "./services/config";
 import { testConnectivity } from "./services/connectivity";
 import { buildInstallPlan, runInstallPlan } from "./services/install";
+import { launchClaudeCode } from "./services/launch";
 import { IPC_CHANNELS } from "../shared/ipc";
 
 async function createWindow() {
@@ -26,6 +27,7 @@ function registerIpcHandlers() {
     const plan = buildInstallPlan(environment.dependencies);
     return runInstallPlan(plan);
   });
+  ipcMain.handle(IPC_CHANNELS.launchClaudeCode, () => launchClaudeCode());
   ipcMain.handle(IPC_CHANNELS.saveConfig, (_event, config) => saveConfig(config));
   ipcMain.handle(IPC_CHANNELS.testConnectivity, (_event, config) => testConnectivity(config));
 }

@@ -7,6 +7,7 @@ import { configInputSchema } from "../shared/schemas";
 const api: PClaudeApi = {
   detectEnvironment: () => ipcRenderer.invoke(IPC_CHANNELS.detectEnvironment),
   installMissing: () => ipcRenderer.invoke(IPC_CHANNELS.installMissing),
+  launchClaudeCode: () => ipcRenderer.invoke(IPC_CHANNELS.launchClaudeCode),
   saveConfig: (config) => ipcRenderer.invoke(IPC_CHANNELS.saveConfig, configInputSchema.parse(config)),
   testConnectivity: (config) =>
     ipcRenderer.invoke(IPC_CHANNELS.testConnectivity, configInputSchema.parse(config))
