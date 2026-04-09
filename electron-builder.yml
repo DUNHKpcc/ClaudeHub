@@ -7,8 +7,10 @@ files:
   - dist-electron/**
   - package.json
 mac:
+  icon: build/icons/icon.icns
   target:
     - dmg
 win:
+  icon: build/icons/icon.ico
   target:
     - nsis
