@@ -19,7 +19,7 @@ export function ConfigForm({ onSubmit }: ConfigFormProps) {
     event.preventDefault();
 
     if (!apiKey.trim()) {
-      setValidationMessage("Anthropic API Key is required.");
+      setValidationMessage("请输入 Anthropic API Key。");
       return;
     }
 
@@ -65,9 +65,9 @@ export function ConfigForm({ onSubmit }: ConfigFormProps) {
       </label>
 
       <label style={fieldStyle}>
-        <span style={labelStyle}>Model</span>
+        <span style={labelStyle}>模型</span>
         <select
-          aria-label="Model"
+          aria-label="模型"
           value={model}
           onChange={(event) => setModel(event.target.value as (typeof supportedModels)[number])}
           style={inputStyle}
@@ -81,7 +81,7 @@ export function ConfigForm({ onSubmit }: ConfigFormProps) {
       </label>
 
       <button type="submit" disabled={isSubmitting} style={buttonStyle}>
-        Save Configuration
+        保存配置
       </button>
 
       {validationMessage ? <p style={validationStyle}>{validationMessage}</p> : null}
@@ -91,42 +91,43 @@ export function ConfigForm({ onSubmit }: ConfigFormProps) {
 
 const formStyle: CSSProperties = {
   display: "grid",
-  gap: 16
+  gap: 10
 };
 
 const fieldStyle: CSSProperties = {
   display: "grid",
-  gap: 8
+  gap: 6
 };
 
 const labelStyle: CSSProperties = {
-  fontSize: 14,
-  fontWeight: 600
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#cccccc"
 };
 
 const inputStyle: CSSProperties = {
-  border: "1px solid rgba(148, 163, 184, 0.35)",
-  borderRadius: 12,
-  background: "rgba(15, 23, 42, 0.85)",
-  color: "inherit",
-  padding: "12px 14px",
+  border: "1px solid #3c3c3c",
+  borderRadius: 8,
+  background: "#1f1f1f",
+  color: "#cccccc",
+  padding: "8px 10px",
   font: "inherit"
 };
 
 const buttonStyle: CSSProperties = {
   justifySelf: "start",
-  border: "none",
-  borderRadius: 999,
-  background: "#8b5cf6",
-  color: "#fff",
-  padding: "12px 18px",
+  border: "1px solid #3c3c3c",
+  borderRadius: 8,
+  background: "#2d2d30",
+  color: "#ffffff",
+  padding: "8px 12px",
   font: "inherit",
-  fontWeight: 700,
+  fontWeight: 600,
   cursor: "pointer"
 };
 
 const validationStyle: CSSProperties = {
   margin: 0,
-  color: "#fca5a5",
-  fontSize: 14
+  color: "#ffffff",
+  fontSize: 12
 };

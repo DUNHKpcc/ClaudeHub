@@ -14,6 +14,12 @@ import { ConfigForm } from "./components/ConfigForm";
 import { ConnectivityBanner } from "./components/ConnectivityBanner";
 import { DependencyCard } from "./components/DependencyCard";
 import { InstallActions } from "./components/InstallActions";
+import {
+  localizeDependencyName,
+  localizeInstallStage,
+  localizeInstallState,
+  localizeMessage
+} from "./lib/ui-copy";
 
 interface InstallProgressEntry extends InstallProgressEvent {
   id: string;
@@ -27,10 +33,11 @@ type RendererApi = Window["pclaude"] & {
 export function App() {
   const [environment, setEnvironment] = useState<DetectEnvironmentResult | null>(null);
   const [connectivity, setConnectivity] = useState<ConnectivityResult | null>(null);
+  const [environmentRefreshing, setEnvironmentRefreshing] = useState(false);
   const [installInProgress, setInstallInProgress] = useState(false);
   const [installProgress, setInstallProgress] = useState<InstallProgressEntry[]>([]);
   const [lastInstallResult, setLastInstallResult] = useState<InstallResult | null>(null);
-  const [status, setStatus] = useState("Detecting local environment...");
+  const [status, setStatus] = useState("正在检测本机环境…");
 
   useEffect(() => {
     let cancelled = false;
@@ -65,9 +72,11 @@ export function App() {
     const api = window.pclaude as RendererApi | undefined;
 
     if (!api) {
-      setStatus("Environment detection failed");
+      setStatus("环境检测失败");
       return;
     }
+
+    setEnvironmentRefreshing(true);
 
     try {
       const result = await api.detectEnvironment();
@@ -77,26 +86,35 @@ export function App() {
       }
 
       setEnvironment(result);
-      setStatus(isEnvironmentReady(result) ? "Environment ready" : "Environment not ready");
+      setStatus(isEnvironmentReady(result) ? "环境已就绪" : "环境未就绪");
     } catch {
       if (!isCancelled?.()) {
-        setStatus("Environment detection failed");
+        setStatus("环境检测失败");
+      }
+    } finally {
+      if (!isCancelled?.()) {
+        setEnvironmentRefreshing(false);
       }
     }
+  }
+
+  async function handleRefresh() {
+    setStatus("正在重新检测环境…");
+    await refreshEnvironment();
   }
 
   async function handleInstall() {
     const api = window.pclaude as RendererApi | undefined;
 
     if (!api) {
-      setStatus("Install flow failed");
+      setStatus("安装流程失败");
       return;
     }
 
     setInstallInProgress(true);
     setInstallProgress([]);
     setLastInstallResult(null);
-    setStatus("Running install attempt...");
+    setStatus("正在执行安装…");
 
     try {
       const result = await api.installMissing();
@@ -104,7 +122,7 @@ export function App() {
       await refreshEnvironment();
       setStatus(buildInstallStatusMessage(result));
     } catch {
-      setStatus("Install flow failed");
+      setStatus("安装流程失败");
     } finally {
       setInstallInProgress(false);
     }
@@ -113,23 +131,33 @@ export function App() {
   async function handleLaunch() {
     const api = window.pclaude as RendererApi | undefined;
 
-    if (!api?.launchClaudeCode) {
-      setStatus("Launch flow unavailable");
+    if (!environment) {
+      setStatus("请先重新检测环境。");
       return;
     }
 
-    setStatus("Launching Claude Code...");
+    if (!isEnvironmentReady(environment)) {
+      setStatus("请先安装缺失依赖后再启动 Claude Code。");
+      return;
+    }
+
+    if (!api?.launchClaudeCode) {
+      setStatus("当前版本暂不支持启动");
+      return;
+    }
+
+    setStatus("正在启动 Claude Code…");
 
     try {
       const pid = await api.launchClaudeCode();
-      setStatus(`Claude Code launched with PID ${pid}.`);
+      setStatus(`Claude Code 已启动，进程号 ${pid}。`);
     } catch (error) {
       const message =
         error instanceof Error && error.message === "Claude configuration is missing."
-          ? "Save Anthropic configuration before launching Claude Code."
+          ? "请先保存 Anthropic 配置后再启动 Claude Code。"
           : error instanceof Error && error.message
-            ? error.message
-            : "Launch flow failed";
+            ? localizeMessage(error.message)
+            : "启动流程失败";
 
       setStatus(message);
     }
@@ -154,7 +182,7 @@ export function App() {
       setConnectivity({
         ok: false,
         reason: "network",
-        message
+        message: localizeMessage(message)
       });
     }
   }
@@ -162,15 +190,15 @@ export function App() {
   return (
     <main style={mainStyle}>
       <header style={heroStyle}>
-        <p style={eyebrowStyle}>Installer wizard</p>
+        <p style={eyebrowStyle}>本地安装器</p>
         <h1 style={headingStyle}>{APP_TITLE}</h1>
         <p style={statusStyle}>{status}</p>
       </header>
 
       <section style={sectionStyle}>
         <div style={sectionHeadingStyle}>
-          <h2 style={sectionTitleStyle}>Dependencies</h2>
-          <p style={sectionCopyStyle}>Check the local toolchain before saving configuration.</p>
+          <h2 style={sectionTitleStyle}>环境依赖</h2>
+          <p style={sectionCopyStyle}>安装前先确认本机工具链状态。</p>
         </div>
 
         <div style={gridStyle}>
@@ -182,6 +210,8 @@ export function App() {
           launchAvailable={Boolean((window.pclaude as RendererApi | undefined)?.launchClaudeCode)}
           launchEnabled={environment !== null && isEnvironmentReady(environment) && !installInProgress}
           installInProgress={installInProgress}
+          refreshInProgress={environmentRefreshing}
+          onRefresh={handleRefresh}
           onInstall={handleInstall}
           onLaunch={handleLaunch}
         />
@@ -200,8 +230,8 @@ export function App() {
 
       <section style={sectionStyle}>
         <div style={sectionHeadingStyle}>
-          <h2 style={sectionTitleStyle}>Anthropic Configuration</h2>
-          <p style={sectionCopyStyle}>Store API settings and verify the endpoint immediately.</p>
+          <h2 style={sectionTitleStyle}>Anthropic 配置</h2>
+          <p style={sectionCopyStyle}>保存 API 参数并立即校验连通性。</p>
         </div>
 
         <div style={panelStyle}>
@@ -217,17 +247,17 @@ function InstallReport({ result }: { result: InstallResult }) {
   return (
     <section style={reportStyle}>
       <div style={sectionHeadingStyle}>
-        <h3 style={reportTitleStyle}>Latest Install Report</h3>
-        <p style={sectionCopyStyle}>Review the most recent install outcome for each dependency step.</p>
+        <h3 style={reportTitleStyle}>安装报告</h3>
+        <p style={sectionCopyStyle}>最近一次安装结果。</p>
       </div>
       <ul style={reportListStyle}>
         {result.steps.map((step) => (
           <li key={`${step.name}-${step.state}-${step.message ?? "none"}`} style={reportItemStyle}>
             <div style={reportHeaderStyle}>
-              <span style={reportNameStyle}>{step.name}</span>
-              <span style={reportStateStyle(step.state)}>{step.state}</span>
+              <span style={reportNameStyle}>{localizeDependencyName(step.name)}</span>
+              <span style={reportStateStyle(step.state)}>{localizeInstallState(step.state)}</span>
             </div>
-            {step.message ? <p style={reportMessageStyle}>{step.message}</p> : null}
+            {step.message ? <p style={reportMessageStyle}>{localizeMessage(step.message)}</p> : null}
           </li>
         ))}
       </ul>
@@ -241,18 +271,16 @@ function InstallProgressPanel({ entries, running }: { entries: InstallProgressEn
   return (
     <section style={progressPanelStyle} aria-live="polite">
       <div style={sectionHeadingStyle}>
-        <h3 style={reportTitleStyle}>Install Progress</h3>
-        <p style={sectionCopyStyle}>
-          {running ? "The installer is running and reporting live progress." : "Recent progress events from the last install run."}
-        </p>
+        <h3 style={reportTitleStyle}>安装进度</h3>
+        <p style={sectionCopyStyle}>{running ? "正在执行安装任务。" : "展示最近一次安装的进度记录。"}</p>
       </div>
-      <p style={progressStatusStyle}>{latestEntry ? formatInstallProgressStatus(latestEntry) : "Waiting for installer events..."}</p>
+      <p style={progressStatusStyle}>{latestEntry ? formatInstallProgressStatus(latestEntry) : "等待安装事件…"}</p>
       <ul style={reportListStyle}>
         {entries.map((entry) => (
           <li key={entry.id} style={reportItemStyle}>
             <div style={reportHeaderStyle}>
-              <span style={reportNameStyle}>{entry.dependency}</span>
-              <span style={reportStateStyle(entry.stage)}>{entry.stage}</span>
+              <span style={reportNameStyle}>{localizeDependencyName(entry.dependency)}</span>
+              <span style={reportStateStyle(entry.stage)}>{localizeInstallStage(entry.stage)}</span>
             </div>
             <p style={reportMessageStyle}>{formatInstallProgressMessage(entry)}</p>
           </li>
@@ -290,8 +318,8 @@ function NextStepsPanel({
   return (
     <section style={reportStyle}>
       <div style={sectionHeadingStyle}>
-        <h3 style={reportTitleStyle}>Next Steps</h3>
-        <p style={sectionCopyStyle}>Use the shortest path to get back to a ready environment.</p>
+        <h3 style={reportTitleStyle}>下一步</h3>
+        <p style={sectionCopyStyle}>根据当前状态继续处理。</p>
       </div>
       <ul style={reportListStyle}>
         {steps.map((step) => (
@@ -316,18 +344,18 @@ function buildInstallStatusMessage(result: InstallResult): string {
 
   if (result.steps.length === 0) {
     return result.ok
-      ? "Install attempt completed: nothing needed to change."
-      : "Install attempt reported no runnable steps.";
+      ? "安装完成，无需变更。"
+      : "安装结束，但没有可执行步骤。";
   }
 
   const completedSteps = result.steps.filter((step) => step.state === "completed").length;
   const failedSteps = result.steps.filter((step) => step.state === "failed").length;
 
   if (failedSteps > 0) {
-    return `Install attempt completed with ${completedSteps} completed step(s) and ${failedSteps} failed step(s).${suffix}`;
+    return `安装结束：成功 ${completedSteps} 项，失败 ${failedSteps} 项。${suffix}`;
   }
 
-  return `Install attempt completed successfully with ${completedSteps} completed step(s).${suffix}`;
+  return `安装完成：成功 ${completedSteps} 项。${suffix}`;
 }
 
 function formatInstallMessages(messages: string[]): string {
@@ -337,7 +365,7 @@ function formatInstallMessages(messages: string[]): string {
     return "";
   }
 
-  return ` ${uniqueMessages.join(" ")}`;
+  return ` ${uniqueMessages.map((message) => localizeMessage(message)).join(" ")}`;
 }
 
 function normalizeInstallProgressEvent(event: InstallProgressEvent): InstallProgressEntry | null {
@@ -357,12 +385,12 @@ function normalizeInstallProgressEvent(event: InstallProgressEvent): InstallProg
 }
 
 function formatInstallProgressMessage(event: InstallProgressEvent): string {
-  return event.message.trim();
+  return localizeMessage(event.message.trim());
 }
 
 function formatInstallProgressStatus(entry: InstallProgressEvent): string {
   const message = formatInstallProgressMessage(entry);
-  return message || "Installer progress update received.";
+  return message || "已收到安装进度更新。";
 }
 
 function buildNextSteps({
@@ -384,43 +412,43 @@ function buildNextSteps({
   const platform = environment?.platform;
 
   if (installInProgress) {
-    steps.add("Keep this window open until the install report finishes.");
+    steps.add("安装尚未结束，请保持窗口开启。");
   }
 
   if (!environment) {
-    steps.add("Run a fresh environment check before launching.");
+    steps.add("请先重新执行环境检测。");
   } else if (!isReady) {
-    steps.add("Fix the missing dependencies, then run install again.");
+    steps.add("先处理缺失依赖，再重新执行安装。");
   } else {
-    steps.add("You can launch Claude Code now.");
+    steps.add("环境已就绪，可以直接启动 Claude Code。");
   }
 
   if (platform === "darwin" && environment?.dependencies.some((dependency) => dependency.name === "git" && dependency.state !== "installed")) {
-    steps.add("On macOS, install Xcode Command Line Tools or Homebrew Git, then re-check the environment.");
+    steps.add("macOS 请安装 Xcode Command Line Tools 或 Homebrew Git，然后重新检测环境。");
   }
 
   if (hasBlockingInstallResult) {
-    steps.add("Re-run Install Missing Dependencies to retry the failed step(s).");
+    steps.add("重新执行“安装缺失依赖”以重试失败项目。");
   }
 
   if (connectivity && !connectivity.ok) {
     if (connectivity.reason === "missing_key") {
-      steps.add("Add your Anthropic API key, then save the configuration again.");
+      steps.add("补充 Anthropic API Key 后重新保存配置。");
     } else if (connectivity.reason === "invalid_endpoint") {
-      steps.add("Use a valid Anthropic Base URL before saving the configuration.");
+      steps.add("请填写合法的 Base URL 后再保存配置。");
     } else if (connectivity.reason === "auth") {
-      steps.add("Check the API key and try the connectivity test again.");
+      steps.add("请检查 API Key 后重新执行连通性校验。");
     } else {
-      steps.add("Fix the network or timeout issue, then retry the connectivity test.");
+      steps.add("请处理网络或超时问题，然后重新执行连通性校验。");
     }
   }
 
-  if (/launch flow unavailable|launch disabled|environment not ready/i.test(status)) {
-    steps.add("Launch stays blocked until every dependency is marked installed.");
+  if (/当前版本暂不支持启动|环境未就绪/u.test(status)) {
+    steps.add("只有所有依赖都显示已安装后，启动按钮才会可用。");
   }
 
   if (environment?.dependencies.some((dependency) => dependency.name === "claude" && dependency.state !== "installed")) {
-    steps.add("Install Claude Code before trying to launch the app.");
+    steps.add("请先安装 Claude Code，再执行启动。");
   }
 
   return Array.from(steps).slice(0, 5);
@@ -441,88 +469,94 @@ function attachInstallProgressListener(
 
 const mainStyle: CSSProperties = {
   minHeight: "100%",
-  padding: 32,
+  maxWidth: 1120,
+  margin: "0 auto",
+  padding: 16,
   display: "grid",
-  gap: 24,
-  background:
-    "radial-gradient(circle at top, rgba(99, 102, 241, 0.18), transparent 28%), linear-gradient(180deg, #020617 0%, #0f172a 100%)",
-  color: "#e2e8f0"
+  gap: 12,
+  background: "#1e1e1e",
+  color: "#cccccc"
 };
 
 const heroStyle: CSSProperties = {
   display: "grid",
-  gap: 8,
-  maxWidth: 900
+  gap: 4
 };
 
 const eyebrowStyle: CSSProperties = {
   margin: 0,
-  color: "#93c5fd",
-  textTransform: "uppercase",
-  letterSpacing: "0.16em",
-  fontSize: 12,
-  fontWeight: 700
+  color: "#8c8c8c",
+  fontSize: 11,
+  fontWeight: 600
 };
 
 const headingStyle: CSSProperties = {
   margin: 0,
-  fontSize: 48,
-  lineHeight: 1.05
+  fontSize: 24,
+  lineHeight: 1.2,
+  color: "#ffffff",
+  fontWeight: 600
 };
 
 const statusStyle: CSSProperties = {
   margin: 0,
-  color: "#cbd5e1"
+  color: "#9d9d9d",
+  fontSize: 12
 };
 
 const sectionStyle: CSSProperties = {
   display: "grid",
-  gap: 16
+  gap: 8
 };
 
 const sectionHeadingStyle: CSSProperties = {
   display: "grid",
-  gap: 4
+  gap: 2
 };
 
 const sectionTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: 22
+  fontSize: 14,
+  color: "#ffffff",
+  fontWeight: 600
 };
 
 const sectionCopyStyle: CSSProperties = {
   margin: 0,
-  color: "#94a3b8"
+  color: "#8c8c8c",
+  fontSize: 12
 };
 
 const gridStyle: CSSProperties = {
   display: "grid",
-  gap: 16,
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))"
+  gap: 8,
+  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))"
 };
 
 const panelStyle: CSSProperties = {
   display: "grid",
-  gap: 16,
+  gap: 10,
   maxWidth: 720,
-  padding: 20,
-  borderRadius: 24,
-  background: "rgba(15, 23, 42, 0.6)",
-  border: "1px solid rgba(148, 163, 184, 0.2)"
+  padding: 12,
+  borderRadius: 8,
+  background: "#252526",
+  border: "1px solid #3c3c3c"
 };
 
 const reportStyle: CSSProperties = {
   display: "grid",
-  gap: 12,
-  padding: 20,
-  borderRadius: 20,
-  background: "rgba(15, 23, 42, 0.58)",
-  border: "1px solid rgba(148, 163, 184, 0.18)"
+  gap: 8,
+  padding: 12,
+  borderRadius: 8,
+  background: "#252526",
+  border: "1px solid #3c3c3c"
 };
 
 const reportTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: 18
+  fontSize: 13,
+  fontWeight: 600,
+  color: "#ffffff"
 };
 
 const reportListStyle: CSSProperties = {
@@ -530,75 +564,57 @@ const reportListStyle: CSSProperties = {
   margin: 0,
   padding: 0,
   display: "grid",
-  gap: 10
+  gap: 6
 };
 
 const reportItemStyle: CSSProperties = {
   display: "grid",
-  gap: 6,
-  padding: 14,
-  borderRadius: 14,
-  background: "rgba(2, 6, 23, 0.42)",
-  border: "1px solid rgba(148, 163, 184, 0.12)"
+  gap: 4,
+  padding: 10,
+  borderRadius: 8,
+  background: "#1f1f1f",
+  border: "1px solid #3c3c3c"
 };
 
 const reportHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  gap: 12
+  gap: 8
 };
 
 const reportNameStyle: CSSProperties = {
-  fontSize: 15,
-  fontWeight: 700,
-  textTransform: "capitalize"
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#ffffff"
 };
 
 function reportStateStyle(state: string): CSSProperties {
-  if (state !== "completed" && state !== "failed") {
-    return {
-      borderRadius: 999,
-      padding: "5px 10px",
-      fontSize: 12,
-      fontWeight: 700,
-      textTransform: "uppercase",
-      letterSpacing: "0.08em",
-      background: "rgba(56, 189, 248, 0.16)",
-      color: "#7dd3fc"
-    };
-  }
-
   return {
-    borderRadius: 999,
-    padding: "5px 10px",
-    fontSize: 12,
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    background: state === "completed" ? "rgba(34, 197, 94, 0.16)" : "rgba(248, 113, 113, 0.16)",
-    color: state === "completed" ? "#86efac" : "#fca5a5"
+    borderRadius: 8,
+    border: "1px solid #3c3c3c",
+    padding: "2px 8px",
+    fontSize: 11,
+    fontWeight: 600,
+    color: "#cccccc",
+    background: "#1e1e1e"
   };
 }
 
 const reportMessageStyle: CSSProperties = {
   margin: 0,
-  color: "#cbd5e1",
-  lineHeight: 1.5
+  color: "#cccccc",
+  lineHeight: 1.5,
+  fontSize: 12
 };
 
 const progressPanelStyle: CSSProperties = {
-  display: "grid",
-  gap: 12,
-  padding: 20,
-  borderRadius: 20,
-  background: "rgba(8, 15, 34, 0.72)",
-  border: "1px solid rgba(96, 165, 250, 0.22)"
+  ...reportStyle
 };
 
 const progressStatusStyle: CSSProperties = {
   margin: 0,
-  color: "#bfdbfe",
-  fontSize: 14,
+  color: "#9d9d9d",
+  fontSize: 12,
   lineHeight: 1.5
 };

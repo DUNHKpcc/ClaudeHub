@@ -55,11 +55,15 @@ describe("App", () => {
   it("renders a launch area that stays disabled until the API exposes launch", () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "Launch Claude Code" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Launch Claude Code" })).toBeDisabled();
-    expect(
-      screen.getByText("Launch will become available once the preload API exposes a launcher.")
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "启动" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "启动 Claude Code" })).toBeEnabled();
+    expect(screen.getByText("当前版本尚未暴露启动能力。")).toBeInTheDocument();
+  });
+
+  it("renders a refresh button for rerunning environment detection", () => {
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: /检测/ })).toBeInTheDocument();
   });
 
   it("shows a not-ready status when npm is missing", async () => {
@@ -78,8 +82,8 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
-    expect(screen.getByText("npm is missing.")).toBeInTheDocument();
+    expect(await screen.findByText("环境未就绪")).toBeInTheDocument();
+    expect(screen.getByText("npm 未安装。")).toBeInTheDocument();
   });
 
   it("shows a not-ready status when a dependency is outdated", async () => {
@@ -98,8 +102,8 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
-    expect(screen.getByText("outdated")).toBeInTheDocument();
+    expect(await screen.findByText("环境未就绪")).toBeInTheDocument();
+    expect(screen.getByText("版本过低")).toBeInTheDocument();
   });
 
   it("shows a not-ready status when a blocking dependency is missing", async () => {
@@ -118,8 +122,8 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
-    expect(screen.getByText("git is missing.")).toBeInTheDocument();
+    expect(await screen.findByText("环境未就绪")).toBeInTheDocument();
+    expect(screen.getByText("Git 未安装。")).toBeInTheDocument();
   });
 
   it("shows macOS git guidance in the next steps panel when git is missing", async () => {
@@ -139,9 +143,9 @@ describe("App", () => {
     render(<App />);
 
     expect(
-      await screen.findByText("On macOS, install Xcode Command Line Tools or Homebrew Git, then re-check the environment.")
+      await screen.findByText("macOS 请安装 Xcode Command Line Tools 或 Homebrew Git，然后重新检测环境。")
     ).toBeInTheDocument();
-    expect(screen.getByText("Launch stays blocked until every dependency is marked installed.")).toBeInTheDocument();
+    expect(screen.getByText("只有所有依赖都显示已安装后，启动按钮才会可用。")).toBeInTheDocument();
   });
 
   it("saves after transient connectivity failures and surfaces save failures", async () => {
@@ -165,7 +169,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Anthropic API Key"), {
       target: { value: "sk-ant-test" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
 
     await waitFor(() => {
       expect(api.testConnectivity).toHaveBeenCalledTimes(1);
@@ -173,7 +177,7 @@ describe("App", () => {
     });
 
     expect(calls).toEqual(["connectivity", "save"]);
-    expect(await screen.findByText("save failed")).toBeInTheDocument();
+    expect(await screen.findByText("保存失败")).toBeInTheDocument();
   });
 
   it("does not save on auth connectivity failures", async () => {
@@ -189,14 +193,14 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Anthropic API Key"), {
       target: { value: "sk-ant-test" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
 
     await waitFor(() => {
       expect(api.testConnectivity).toHaveBeenCalledTimes(1);
       expect(api.saveConfig).not.toHaveBeenCalled();
     });
 
-    expect(await screen.findByText("Authentication failed. Check your API key.")).toBeInTheDocument();
+    expect(await screen.findByText("鉴权失败，请检查 API Key。")).toBeInTheDocument();
   });
 
   it("reports install outcomes using returned step states", async () => {
@@ -212,17 +216,17 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Install Missing Dependencies" }));
+    fireEvent.click(screen.getByRole("button", { name: "安装 Claude Code 与缺失依赖" }));
 
     expect(
       await screen.findByText(
-        "Install attempt completed with 1 completed step(s) and 1 failed step(s). Manual install required for git."
+        "安装结束：成功 1 项，失败 1 项。 Git 需要手动安装。"
       )
     ).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Latest Install Report" })).toBeInTheDocument();
-    expect(screen.getByText("Manual install required for git.")).toBeInTheDocument();
-    expect(screen.getAllByText("completed").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("failed").length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "安装报告" })).toBeInTheDocument();
+    expect(screen.getByText("Git 需要手动安装。")).toBeInTheDocument();
+    expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("失败").length).toBeGreaterThan(0);
   });
 
   it("omits install message suffixes when step messages are absent", async () => {
@@ -238,11 +242,9 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Install Missing Dependencies" }));
+    fireEvent.click(screen.getByRole("button", { name: "安装 Claude Code 与缺失依赖" }));
 
-    expect(
-      await screen.findByText("Install attempt completed with 1 completed step(s) and 1 failed step(s).")
-    ).toBeInTheDocument();
+    expect(await screen.findByText("安装结束：成功 1 项，失败 1 项。")).toBeInTheDocument();
   });
 
   it("shows live install progress updates while an install is running", async () => {
@@ -266,7 +268,7 @@ describe("App", () => {
 
     render(<App />);
 
-    const installButton = screen.getByRole("button", { name: "Install Missing Dependencies" });
+    const installButton = screen.getByRole("button", { name: "安装 Claude Code 与缺失依赖" });
     fireEvent.click(installButton);
 
     await waitFor(() => {
@@ -279,10 +281,10 @@ describe("App", () => {
       message: "Downloading node from the official source..."
     });
 
-    expect(await screen.findByRole("heading", { name: "Install Progress" })).toBeInTheDocument();
-    expect(screen.getAllByText("Downloading node from the official source...").length).toBeGreaterThan(0);
-    expect(screen.getByText("downloading")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Installing Dependencies..." })).toBeDisabled();
+    expect(await screen.findByRole("heading", { name: "安装进度" })).toBeInTheDocument();
+    expect(screen.getAllByText("正在从官方源下载 Node.js...").length).toBeGreaterThan(0);
+    expect(screen.getByText("下载中")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "安装中…" })).toBeDisabled();
 
     resolveInstall?.({
       ok: true,
@@ -290,7 +292,7 @@ describe("App", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Install Missing Dependencies" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "安装 Claude Code 与缺失依赖" })).toBeEnabled();
     });
   });
 
@@ -307,11 +309,11 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Install Missing Dependencies" }));
+    fireEvent.click(screen.getByRole("button", { name: "安装 Claude Code 与缺失依赖" }));
 
-    expect(await screen.findByRole("heading", { name: "Latest Install Report" })).toBeInTheDocument();
-    expect(screen.getByText("Installed node from the official source.")).toBeInTheDocument();
-    expect(screen.getByText("Installed claude from the official source.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "安装报告" })).toBeInTheDocument();
+    expect(screen.getByText("已从官方源安装 Node.js。")).toBeInTheDocument();
+    expect(screen.getByText("已从官方源安装 Claude Code。")).toBeInTheDocument();
   });
 
   it("shows retry guidance in next steps when an install verification fails", async () => {
@@ -327,11 +329,9 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Install Missing Dependencies" }));
+    fireEvent.click(screen.getByRole("button", { name: "安装 Claude Code 与缺失依赖" }));
 
-    expect(
-      await screen.findByText("Re-run Install Missing Dependencies to retry the failed step(s).")
-    ).toBeInTheDocument();
+    expect(await screen.findByText("重新执行“安装缺失依赖”以重试失败项目。")).toBeInTheDocument();
   });
 
   it("calls the launch API when it is present", async () => {
@@ -352,7 +352,7 @@ describe("App", () => {
 
     render(<App />);
 
-    const launchButton = await screen.findByRole("button", { name: "Launch Claude Code" });
+    const launchButton = await screen.findByRole("button", { name: "启动 Claude Code" });
 
     expect(launchButton).toBeEnabled();
 
@@ -362,10 +362,10 @@ describe("App", () => {
       expect(launchClaudeCode).toHaveBeenCalledTimes(1);
     });
 
-    expect(await screen.findByText("Claude Code launched with PID 4242.")).toBeInTheDocument();
+    expect(await screen.findByText("Claude Code 已启动，进程号 4242。")).toBeInTheDocument();
   });
 
-  it("keeps launch disabled when the environment is not ready", async () => {
+  it("shows guidance when launch is attempted before the environment is ready", async () => {
     installApi({
       launchClaudeCode: vi.fn().mockResolvedValue(4242),
       detectEnvironment: vi.fn().mockResolvedValue({
@@ -382,8 +382,9 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Launch Claude Code" })).toBeDisabled();
+    expect(await screen.findByText("环境未就绪")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "启动 Claude Code" }));
+    expect(await screen.findByText("请先安装缺失依赖后再启动 Claude Code。")).toBeInTheDocument();
   });
 
   it("surfaces a clear launch error when configuration has not been saved", async () => {
@@ -404,12 +405,12 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Launch Claude Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: "启动 Claude Code" }));
 
     await waitFor(() => {
       expect(launchClaudeCode).toHaveBeenCalledTimes(1);
     });
 
-    expect(await screen.findByText("Save Anthropic configuration before launching Claude Code.")).toBeInTheDocument();
+    expect(await screen.findByText("请先保存 Anthropic 配置后再启动 Claude Code。")).toBeInTheDocument();
   });
 });

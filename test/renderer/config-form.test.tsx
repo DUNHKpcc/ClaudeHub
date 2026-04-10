@@ -16,10 +16,10 @@ describe("ConfigForm", () => {
     fireEvent.change(screen.getByLabelText("Anthropic API Key"), {
       target: { value: "sk-ant-test" }
     });
-    fireEvent.change(screen.getByLabelText("Model"), {
+    fireEvent.change(screen.getByLabelText("模型"), {
       target: { value: "claude-sonnet-4-20250514" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       apiKey: "sk-ant-test",
@@ -33,9 +33,9 @@ describe("ConfigForm", () => {
 
     render(<ConfigForm onSubmit={onSubmit} />);
 
-    fireEvent.submit(screen.getByRole("button", { name: "Save Configuration" }).closest("form")!);
+    fireEvent.submit(screen.getByRole("button", { name: "保存配置" }).closest("form")!);
 
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByText("Anthropic API Key is required.")).toBeInTheDocument();
+    expect(screen.getByText("请输入 Anthropic API Key。")).toBeInTheDocument();
   });
 });

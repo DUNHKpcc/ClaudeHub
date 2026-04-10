@@ -1,31 +1,71 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parent.parent
 ICON_DIR = ROOT / "build" / "icons"
 MASTER_SIZE = 1024
-MAC_ICONSET_SIZES = [
-    16,
-    32,
-    64,
-    128,
-    256,
-    512,
-    1024,
-]
+MAC_ICONSET_SIZES = [16, 32, 64, 128, 256, 512, 1024]
+
+TEXT_COLOR = (255, 106, 66, 255)
+TEXT_SHADOW = (105, 28, 18, 210)
+PANEL_FILL = (28, 28, 30, 255)
+PANEL_STROKE = (255, 106, 66, 255)
+PANEL_HIGHLIGHT = (255, 144, 118, 108)
+PANEL_SHADOW = (0, 0, 0, 90)
+SYMBOL_BG = (45, 33, 32, 255)
+
+
+def load_font(size: int, *, bold: bool = False, mono: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    candidates: list[str]
+    if mono:
+        candidates = [
+            "/System/Library/Fonts/Menlo.ttc",
+            "/System/Library/Fonts/SFNSMono.ttf",
+        ]
+    elif bold:
+        candidates = [
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/HelveticaNeue.ttc",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ]
+    else:
+        candidates = [
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/System/Library/Fonts/HelveticaNeue.ttc",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ]
+
+    for candidate in candidates:
+        if Path(candidate).exists():
+            try:
+                return ImageFont.truetype(candidate, size=size)
+            except OSError:
+                continue
+
+    return ImageFont.load_default()
+
+
+def draw_text_with_shadow(
+    draw: ImageDraw.ImageDraw,
+    position: tuple[int, int],
+    text: str,
+    font: ImageFont.ImageFont,
+) -> None:
+    shadow_offset = 10
+    draw.text((position[0] + shadow_offset, position[1] + shadow_offset), text, font=font, fill=TEXT_SHADOW)
+    draw.text(position, text, font=font, fill=TEXT_COLOR)
 
 
 def create_master_icon() -> Image.Image:
     image = Image.new("RGBA", (MASTER_SIZE, MASTER_SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
 
-    background_top = (14, 33, 56, 255)
-    background_bottom = (6, 16, 31, 255)
+    background_top = (20, 18, 22, 255)
+    background_bottom = (10, 10, 12, 255)
     for y in range(MASTER_SIZE):
         ratio = y / (MASTER_SIZE - 1)
         color = tuple(
@@ -34,93 +74,48 @@ def create_master_icon() -> Image.Image:
         )
         draw.line((0, y, MASTER_SIZE, y), fill=color)
 
+    shadow_bounds = (160, 172, MASTER_SIZE - 128, MASTER_SIZE - 116)
+    draw.rounded_rectangle(shadow_bounds, radius=188, fill=PANEL_SHADOW)
+
+    panel_bounds = (146, 146, MASTER_SIZE - 146, MASTER_SIZE - 146)
     draw.rounded_rectangle(
-        (64, 64, MASTER_SIZE - 64, MASTER_SIZE - 64),
-        radius=220,
-        fill=(10, 24, 43, 245),
-        outline=(117, 180, 255, 255),
-        width=12,
+        panel_bounds,
+        radius=190,
+        fill=PANEL_FILL,
+        outline=PANEL_STROKE,
+        width=10,
+    )
+    draw.rounded_rectangle(
+        (166, 166, MASTER_SIZE - 166, MASTER_SIZE - 166),
+        radius=170,
+        outline=PANEL_HIGHLIGHT,
+        width=4,
     )
 
-    glow_bounds = (128, 128, MASTER_SIZE - 128, MASTER_SIZE - 128)
-    draw.rounded_rectangle(glow_bounds, radius=180, outline=(84, 153, 255, 90), width=26)
+    primary_font = load_font(220, bold=True)
+    secondary_font = load_font(166, bold=True)
+    symbol_font = load_font(78, mono=True)
 
-    toolbox_left = 228
-    toolbox_top = 348
-    toolbox_right = MASTER_SIZE - toolbox_left
-    toolbox_bottom = MASTER_SIZE - 228
-    toolbox_bounds = (toolbox_left, toolbox_top, toolbox_right, toolbox_bottom)
+    draw_text_with_shadow(draw, (214, 280), "Pcl", primary_font)
+    draw_text_with_shadow(draw, (214, 504), "Aude", secondary_font)
+
+    symbol_bounds = (696, 666, 824, 794)
     draw.rounded_rectangle(
-        toolbox_bounds,
-        radius=92,
-        fill=(235, 244, 255, 255),
-        outline=(182, 207, 245, 255),
-        width=8,
+        symbol_bounds,
+        radius=34,
+        fill=SYMBOL_BG,
+        outline=(255, 128, 97, 230),
+        width=6,
     )
-
-    handle_width = 248
-    handle_height = 108
-    handle_left = (MASTER_SIZE - handle_width) / 2
-    handle_top = toolbox_top - 86
-    handle_right = handle_left + handle_width
-    handle_bottom = handle_top + handle_height
-    draw.rounded_rectangle(
-        (handle_left, handle_top, handle_right, handle_bottom),
-        radius=46,
-        fill=(235, 244, 255, 255),
-        outline=(182, 207, 245, 255),
-        width=8,
+    symbol_text = ">_"
+    symbol_box = draw.textbbox((0, 0), symbol_text, font=symbol_font)
+    symbol_width = symbol_box[2] - symbol_box[0]
+    symbol_height = symbol_box[3] - symbol_box[1]
+    symbol_position = (
+        int((symbol_bounds[0] + symbol_bounds[2] - symbol_width) / 2),
+        int((symbol_bounds[1] + symbol_bounds[3] - symbol_height) / 2 - 8),
     )
-    inner_handle_margin = 26
-    draw.rounded_rectangle(
-        (
-            handle_left + inner_handle_margin,
-            handle_top + inner_handle_margin,
-            handle_right - inner_handle_margin,
-            handle_bottom + 34,
-        ),
-        radius=36,
-        fill=(10, 24, 43, 255),
-    )
-
-    latch_width = 168
-    latch_height = 32
-    latch_left = (MASTER_SIZE - latch_width) / 2
-    latch_top = toolbox_top + 58
-    draw.rounded_rectangle(
-        (latch_left, latch_top, latch_left + latch_width, latch_top + latch_height),
-        radius=16,
-        fill=(10, 24, 43, 255),
-    )
-
-    accent = (68, 150, 255, 255)
-    accent_soft = (91, 170, 255, 255)
-    wrench_points = [
-        (404, 610),
-        (458, 556),
-        (522, 620),
-        (654, 488),
-        (636, 438),
-        (686, 388),
-        (742, 404),
-        (782, 364),
-        (742, 324),
-        (702, 364),
-        (718, 420),
-        (668, 470),
-        (618, 452),
-        (486, 584),
-        (550, 648),
-        (496, 702),
-    ]
-    draw.polygon(wrench_points, fill=accent)
-    draw.ellipse((338, 544, 468, 674), fill=accent)
-    draw.ellipse((372, 578, 434, 640), fill=(235, 244, 255, 255))
-
-    screwdriver_handle = [(318, 714), (396, 636), (454, 694), (376, 772)]
-    draw.polygon(screwdriver_handle, fill=accent_soft)
-    draw.rounded_rectangle((454, 526, 496, 696), radius=20, fill=accent_soft)
-    draw.polygon([(496, 526), (574, 448), (604, 478), (526, 556)], fill=accent_soft)
+    draw.text(symbol_position, symbol_text, font=symbol_font, fill=TEXT_COLOR)
 
     return image
 
@@ -144,10 +139,8 @@ def save_icns() -> None:
 
 
 def main() -> None:
-    iconset_dir = ICON_DIR / "pclaude.iconset"
-    if iconset_dir.exists():
-        shutil.rmtree(iconset_dir)
-    for temporary_file in [ICON_DIR / "test.icns", ICON_DIR / "icon.icns"]:
+    ICON_DIR.mkdir(parents=True, exist_ok=True)
+    for temporary_file in [ICON_DIR / "icon.icns"]:
         if temporary_file.exists():
             temporary_file.unlink()
 

@@ -58,8 +58,8 @@ describe("App launch flow", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
-    expect(screen.getByText("npm is missing.")).toBeInTheDocument();
+    expect(await screen.findByText("环境未就绪")).toBeInTheDocument();
+    expect(screen.getByText("npm 未安装。")).toBeInTheDocument();
   });
 
   it("treats outdated node as blocking for launch gating", async () => {
@@ -79,8 +79,9 @@ describe("App launch flow", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Launch Claude Code" })).toBeDisabled();
+    expect(await screen.findByText("环境未就绪")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "启动 Claude Code" }));
+    expect(await screen.findByText("请先安装缺失依赖后再启动 Claude Code。")).toBeInTheDocument();
   });
 
   it("launches Claude Code from the renderer when the launch action is clicked", async () => {
@@ -88,13 +89,13 @@ describe("App launch flow", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Launch Claude Code" }));
+    fireEvent.click(await screen.findByRole("button", { name: "启动 Claude Code" }));
 
     await waitFor(() => {
       expect(api.launchClaudeCode).toHaveBeenCalledTimes(1);
     });
 
-    expect(await screen.findByText("Claude Code launched with PID 4242.")).toBeInTheDocument();
+    expect(await screen.findByText("Claude Code 已启动，进程号 4242。")).toBeInTheDocument();
   });
 
   it("keeps launch disabled until blocking dependencies are installed", async () => {
@@ -114,7 +115,8 @@ describe("App launch flow", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Environment not ready")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Launch Claude Code" })).toBeDisabled();
+    expect(await screen.findByText("环境未就绪")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "启动 Claude Code" }));
+    expect(await screen.findByText("请先安装缺失依赖后再启动 Claude Code。")).toBeInTheDocument();
   });
 });

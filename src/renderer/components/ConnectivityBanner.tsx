@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 import type { ConnectivityResult } from "../../shared/contracts";
+import { localizeMessage } from "../lib/ui-copy";
 
 interface ConnectivityBannerProps {
   result: ConnectivityResult | null;
@@ -11,12 +12,15 @@ export function ConnectivityBanner({ result }: ConnectivityBannerProps) {
     return null;
   }
 
-  return <div style={bannerStyle}>{result.message}</div>;
+  return <div style={bannerStyle}>{localizeMessage(result.message)}</div>;
 }
 
 const bannerStyle: CSSProperties = {
-  borderRadius: 16,
-  padding: "14px 16px",
-  background: "rgba(15, 23, 42, 0.72)",
-  border: "1px solid rgba(148, 163, 184, 0.2)"
+  borderRadius: 8,
+  padding: "10px 12px",
+  background: "#1f1f1f",
+  border: "1px solid #3c3c3c",
+  color: "#cccccc",
+  fontSize: 12,
+  lineHeight: 1.5
 };

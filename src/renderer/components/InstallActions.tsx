@@ -1,17 +1,21 @@
 import type { CSSProperties } from "react";
 
 interface InstallActionsProps {
+  onRefresh: () => void | Promise<void>;
   onInstall: () => void | Promise<void>;
-  onLaunch?: () => void | Promise<void>;
+  onLaunch: () => void | Promise<void>;
   installInProgress?: boolean;
+  refreshInProgress?: boolean;
   launchAvailable?: boolean;
   launchEnabled?: boolean;
 }
 
 export function InstallActions({
+  refreshInProgress = false,
   installInProgress = false,
   launchAvailable = false,
   launchEnabled = false,
+  onRefresh,
   onInstall,
   onLaunch
 }: InstallActionsProps) {
@@ -19,11 +23,28 @@ export function InstallActions({
     <div style={actionsStyle}>
       <section style={actionCardStyle}>
         <div style={copyStackStyle}>
-          <h3 style={titleStyle}>Install Missing Dependencies</h3>
+          <h3 style={titleStyle}>检测</h3>
+          <p style={copyStyle}>
+            重新执行本机环境检测，刷新 Node、Git、Claude Code 的状态。
+          </p>
+        </div>
+        <button
+          disabled={refreshInProgress || installInProgress}
+          style={secondaryButtonStyle}
+          type="button"
+          onClick={() => void onRefresh()}
+        >
+          {refreshInProgress ? "检测中…" : "重新检测环境"}
+        </button>
+      </section>
+
+      <section style={actionCardStyle}>
+        <div style={copyStackStyle}>
+          <h3 style={titleStyle}>安装</h3>
           <p style={copyStyle}>
             {installInProgress
-              ? "Installer is running. Keep this window open while dependencies are being fetched and verified."
-              : "Run the detected install flow against the local toolchain."}
+              ? "安装进行中，请保持窗口开启。"
+              : "根据当前检测结果安装 Claude Code 与缺失依赖。"}
           </p>
         </div>
         <button
@@ -33,28 +54,28 @@ export function InstallActions({
           type="button"
           onClick={() => void onInstall()}
         >
-          {installInProgress ? "Installing Dependencies..." : "Install Missing Dependencies"}
+          {installInProgress ? "安装中…" : "安装 Claude Code 与缺失依赖"}
         </button>
       </section>
 
       <section style={actionCardStyle}>
         <div style={copyStackStyle}>
-          <h3 style={titleStyle}>Launch Claude Code</h3>
+          <h3 style={titleStyle}>启动</h3>
           <p id="launch-availability" style={copyStyle}>
             {launchAvailable
               ? launchEnabled
-                ? "Start Claude Code after a successful install."
-                : "Finish dependency checks before launching Claude Code."
-              : "Launch will become available once the preload API exposes a launcher."}
+                ? "环境就绪后可直接启动 Claude Code。"
+                : "环境未就绪时也可点击，界面会提示下一步。"
+              : "当前版本尚未暴露启动能力。"}
           </p>
         </div>
         <button
-          disabled={!launchAvailable || !launchEnabled || !onLaunch}
+          disabled={installInProgress}
           style={secondaryButtonStyle}
           type="button"
-          onClick={() => void onLaunch?.()}
+          onClick={() => void onLaunch()}
         >
-          Launch Claude Code
+          启动 Claude Code
         </button>
       </section>
     </div>
@@ -63,51 +84,51 @@ export function InstallActions({
 
 const actionsStyle: CSSProperties = {
   display: "grid",
-  gap: 16,
-  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))"
+  gap: 8,
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))"
 };
 
 const actionCardStyle: CSSProperties = {
   display: "grid",
-  gap: 14,
-  padding: 20,
-  borderRadius: 20,
-  background: "rgba(15, 23, 42, 0.58)",
-  border: "1px solid rgba(148, 163, 184, 0.18)"
+  gap: 10,
+  padding: 12,
+  borderRadius: 8,
+  background: "#252526",
+  border: "1px solid #3c3c3c"
 };
 
 const copyStackStyle: CSSProperties = {
   display: "grid",
-  gap: 6
+  gap: 4
 };
 
 const titleStyle: CSSProperties = {
   margin: 0,
-  fontSize: 16,
-  lineHeight: 1.2
+  fontSize: 13,
+  lineHeight: 1.2,
+  color: "#ffffff"
 };
 
 const copyStyle: CSSProperties = {
   margin: 0,
-  color: "#94a3b8",
-  fontSize: 13,
+  color: "#9d9d9d",
+  fontSize: 12,
   lineHeight: 1.5
 };
 
 const buttonStyle: CSSProperties = {
   appearance: "none",
-  border: "1px solid rgba(96, 165, 250, 0.45)",
-  borderRadius: 999,
-  background: "linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.9))",
-  color: "#eff6ff",
+  border: "1px solid #3c3c3c",
+  borderRadius: 8,
+  background: "#2d2d30",
+  color: "#ffffff",
   cursor: "pointer",
-  fontSize: 14,
-  fontWeight: 700,
-  padding: "12px 18px"
+  fontSize: 12,
+  fontWeight: 600,
+  padding: "8px 12px"
 };
 
 const secondaryButtonStyle: CSSProperties = {
   ...buttonStyle,
-  border: "1px solid rgba(148, 163, 184, 0.28)",
-  background: "rgba(30, 41, 59, 0.8)"
+  background: "#252526"
 };
