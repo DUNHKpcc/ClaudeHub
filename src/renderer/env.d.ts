@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 import type { PClaudeApi } from "../shared/contracts";
 
 export {};

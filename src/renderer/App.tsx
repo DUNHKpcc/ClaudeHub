@@ -1,12 +1,21 @@
-import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { APP_TITLE } from "../shared/ipc";
 import type {
+  ActivityEntry,
+  AnthropicAdminConfig,
+  AnthropicUsageResult,
+  AppSection,
   ConnectivityResult,
+  DiscoveredMcpRecord,
+  DiscoveredSkillRecord,
   DetectEnvironmentResult,
   InstallProgressEvent,
-  InstallResult
+  InstallResult,
+  McpRecord,
+  McpRecordInput,
+  SkillRecord,
+  SkillRecordInput,
+  TokenUsageRange
 } from "../shared/contracts";
 import type { ConfigInput } from "../shared/schemas";
 
@@ -14,6 +23,8 @@ import { ConfigForm } from "./components/ConfigForm";
 import { ConnectivityBanner } from "./components/ConnectivityBanner";
 import { DependencyCard } from "./components/DependencyCard";
 import { InstallActions } from "./components/InstallActions";
+import { LibraryEditor } from "./components/LibraryEditor";
+import { TokenUsagePanel } from "./components/TokenUsagePanel";
 import {
   localizeDependencyName,
   localizeInstallStage,
@@ -25,24 +36,63 @@ interface InstallProgressEntry extends InstallProgressEvent {
   id: string;
 }
 
-type RendererApi = Window["pclaude"] & {
-  launchClaudeCode?: () => Promise<number>;
-  onInstallProgress?: (listener: (event: InstallProgressEvent) => void) => () => void;
+type RendererApi = Window["pclaude"];
+const CLAUDE_LAUNCH_POLL_INTERVAL_MS = import.meta.env.MODE === "test" ? 20 : 2000;
+
+const sectionMeta: Record<
+  AppSection,
+  {
+    title: string;
+    subtitle: string;
+  }
+> = {
+  config: { title: "配置", subtitle: "配置界面" },
+  mcp: { title: "MCP", subtitle: "MCP 管理" },
+  skill: { title: "Skill", subtitle: "Skill 管理" },
+  token: { title: "Token", subtitle: "Token 用量" }
 };
 
 export function App() {
+  const [activeSection, setActiveSection] = useState<AppSection>("config");
   const [environment, setEnvironment] = useState<DetectEnvironmentResult | null>(null);
+  const [savedConfig, setSavedConfig] = useState<ConfigInput | null>(null);
+  const [configPlaceholders, setConfigPlaceholders] = useState<Partial<ConfigInput> | null>(null);
   const [connectivity, setConnectivity] = useState<ConnectivityResult | null>(null);
   const [environmentRefreshing, setEnvironmentRefreshing] = useState(false);
   const [installInProgress, setInstallInProgress] = useState(false);
   const [installProgress, setInstallProgress] = useState<InstallProgressEntry[]>([]);
   const [lastInstallResult, setLastInstallResult] = useState<InstallResult | null>(null);
   const [status, setStatus] = useState("正在检测本机环境…");
+  const [mcpRecords, setMcpRecords] = useState<McpRecord[]>([]);
+  const [skillRecords, setSkillRecords] = useState<SkillRecord[]>([]);
+  const [discoveredMcpRecords, setDiscoveredMcpRecords] = useState<DiscoveredMcpRecord[]>([]);
+  const [discoveredSkillRecords, setDiscoveredSkillRecords] = useState<DiscoveredSkillRecord[]>([]);
+  const [mcpActivity, setMcpActivity] = useState<ActivityEntry[]>([]);
+  const [skillActivity, setSkillActivity] = useState<ActivityEntry[]>([]);
+  const [anthropicAdminConfig, setAnthropicAdminConfig] = useState<AnthropicAdminConfig>({ adminKey: "" });
+  const [tokenRange, setTokenRange] = useState<TokenUsageRange>("7d");
+  const [tokenUsage, setTokenUsage] = useState<AnthropicUsageResult | null>(null);
+
+  const currentMeta = sectionMeta[activeSection];
 
   useEffect(() => {
     let cancelled = false;
+    const api = window.pclaude as RendererApi | undefined;
 
     void refreshEnvironment(() => cancelled);
+    void loadSavedConfig(api, cancelled, setSavedConfig);
+    void loadConfigPlaceholders(api, cancelled, setConfigPlaceholders);
+    void loadLibraryData(
+      api,
+      cancelled,
+      setMcpRecords,
+      setSkillRecords,
+      setDiscoveredMcpRecords,
+      setDiscoveredSkillRecords,
+      setMcpActivity,
+      setSkillActivity
+    );
+    void loadAnthropicConfig(api, cancelled, setAnthropicAdminConfig, setTokenUsage, tokenRange);
 
     return () => {
       cancelled = true;
@@ -67,6 +117,26 @@ export function App() {
       setStatus(formatInstallProgressStatus(entry));
     });
   }, []);
+
+  useEffect(() => {
+    const api = window.pclaude as RendererApi | undefined;
+
+    if (!api?.getClaudeLaunchState || !/Claude Code 已在终端中启动/u.test(status)) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void api.getClaudeLaunchState?.().then((isRunning) => {
+        if (!isRunning) {
+          setStatus("Claude Code 已停止。");
+        }
+      });
+    }, CLAUDE_LAUNCH_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [status]);
 
   async function refreshEnvironment(isCancelled?: () => boolean) {
     const api = window.pclaude as RendererApi | undefined;
@@ -149,33 +219,29 @@ export function App() {
     setStatus("正在启动 Claude Code…");
 
     try {
-      const pid = await api.launchClaudeCode();
-      setStatus(`Claude Code 已启动，进程号 ${pid}。`);
+      await api.launchClaudeCode();
+      setStatus("Claude Code 已在终端中启动。");
     } catch (error) {
       const message =
-        error instanceof Error && error.message === "Claude configuration is missing."
-          ? "请先保存 Anthropic 配置后再启动 Claude Code。"
-          : error instanceof Error && error.message
-            ? localizeMessage(error.message)
-            : "启动流程失败";
+        error instanceof Error && error.message ? localizeMessage(error.message) : "启动流程失败";
 
       setStatus(message);
     }
   }
 
-  async function handleSave(input: ConfigInput) {
+  async function handleSaveConfig(input: ConfigInput) {
+    const api = window.pclaude as RendererApi | undefined;
+
     try {
-      const api = window.pclaude;
       if (!api) {
         throw new Error("Renderer API is unavailable.");
       }
 
+      await api.saveConfig(input);
+      setSavedConfig(input);
+
       const result = await api.testConnectivity(input);
       setConnectivity(result);
-
-      if (result.ok || result.reason === "network" || result.reason === "timeout") {
-        await api.saveConfig(input);
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to save configuration.";
 
@@ -187,77 +253,354 @@ export function App() {
     }
   }
 
+  async function handleSaveMcp(input: McpRecordInput | SkillRecordInput) {
+    const api = window.pclaude as RendererApi | undefined;
+    if (!api?.saveMcpRecord) {
+      return;
+    }
+
+    await api.saveMcpRecord(input as McpRecordInput);
+    await refreshLibraryData();
+  }
+
+  async function handleImportMcp(input: DiscoveredMcpRecord) {
+    const api = window.pclaude as RendererApi | undefined;
+    if (!api?.importMcpRecord) {
+      return;
+    }
+
+    await api.importMcpRecord(input);
+    await refreshLibraryData();
+  }
+
+  async function handleDeleteMcp(id: string) {
+    const api = window.pclaude as RendererApi | undefined;
+    if (!api?.deleteMcpRecord) {
+      return;
+    }
+
+    await api.deleteMcpRecord(id);
+    await refreshLibraryData();
+  }
+
+  async function handleSaveSkill(input: McpRecordInput | SkillRecordInput) {
+    const api = window.pclaude as RendererApi | undefined;
+    if (!api?.saveSkillRecord) {
+      return;
+    }
+
+    await api.saveSkillRecord(input as SkillRecordInput);
+    await refreshLibraryData();
+  }
+
+  async function handleImportSkill(input: DiscoveredSkillRecord) {
+    const api = window.pclaude as RendererApi | undefined;
+    if (!api?.importSkillRecord) {
+      return;
+    }
+
+    await api.importSkillRecord(input);
+    await refreshLibraryData();
+  }
+
+  async function handleDeleteSkill(id: string) {
+    const api = window.pclaude as RendererApi | undefined;
+    if (!api?.deleteSkillRecord) {
+      return;
+    }
+
+    await api.deleteSkillRecord(id);
+    await refreshLibraryData();
+  }
+
+  async function refreshLibraryData() {
+    const api = window.pclaude as RendererApi | undefined;
+
+    if (!api) {
+      return;
+    }
+
+    const [
+      nextMcpRecords,
+      nextSkillRecords,
+      nextDiscoveredMcpRecords,
+      nextDiscoveredSkillRecords,
+      nextMcpActivity,
+      nextSkillActivity
+    ] = await Promise.all([
+      api.listMcpRecords?.() ?? Promise.resolve([]),
+      api.listSkillRecords?.() ?? Promise.resolve([]),
+      api.scanMcpRecords?.() ?? Promise.resolve([]),
+      api.scanSkillRecords?.() ?? Promise.resolve([]),
+      api.listActivityEntries?.("mcp") ?? Promise.resolve([]),
+      api.listActivityEntries?.("skill") ?? Promise.resolve([])
+    ]);
+
+    setMcpRecords(nextMcpRecords);
+    setSkillRecords(nextSkillRecords);
+    setDiscoveredMcpRecords(nextDiscoveredMcpRecords);
+    setDiscoveredSkillRecords(nextDiscoveredSkillRecords);
+    setMcpActivity(nextMcpActivity);
+    setSkillActivity(nextSkillActivity);
+  }
+
+  async function handleSaveAnthropicAdminConfig(input: AnthropicAdminConfig) {
+    const api = window.pclaude as RendererApi | undefined;
+
+    if (!api?.saveAnthropicAdminConfig) {
+      return;
+    }
+
+    const nextConfig = await api.saveAnthropicAdminConfig(input);
+    setAnthropicAdminConfig(nextConfig);
+    await refreshAnthropicUsage(tokenRange);
+  }
+
+  async function refreshAnthropicUsage(range = tokenRange) {
+    const api = window.pclaude as RendererApi | undefined;
+
+    if (!api?.getAnthropicUsage) {
+      return;
+    }
+
+    const result = await api.getAnthropicUsage({ range });
+    setTokenUsage(result);
+  }
+
+  const configSummary = useMemo(() => {
+    const total = environment?.dependencies.length ?? 0;
+    const ready = environment?.dependencies.filter((dependency) => dependency.state === "installed").length ?? 0;
+    return { total, ready };
+  }, [environment]);
+  const currentStatusTone = resolveStatusTone(status);
+
   return (
-    <main style={mainStyle}>
-      <header style={heroStyle}>
-        <p style={eyebrowStyle}>本地安装器</p>
-        <h1 style={headingStyle}>{APP_TITLE}</h1>
-        <p style={statusStyle}>{status}</p>
-      </header>
-
-      <section style={sectionStyle}>
-        <div style={sectionHeadingStyle}>
-          <h2 style={sectionTitleStyle}>环境依赖</h2>
-          <p style={sectionCopyStyle}>安装前先确认本机工具链状态。</p>
+    <main className="claudehub-shell">
+      <aside className="claudehub-rail">
+        <div className="claudehub-rail__top">
+          <RailButton label="Config" selected={activeSection === "config"} onClick={() => setActiveSection("config")} />
+          <RailButton label="MCP" selected={activeSection === "mcp"} onClick={() => setActiveSection("mcp")} />
+          <RailButton label="Skill" selected={activeSection === "skill"} onClick={() => setActiveSection("skill")} />
         </div>
 
-        <div style={gridStyle}>
-          {environment?.dependencies.map((dependency) => (
-            <DependencyCard key={dependency.name} dependency={dependency} />
-          ))}
-        </div>
-        <InstallActions
-          launchAvailable={Boolean((window.pclaude as RendererApi | undefined)?.launchClaudeCode)}
-          launchEnabled={environment !== null && isEnvironmentReady(environment) && !installInProgress}
-          installInProgress={installInProgress}
-          refreshInProgress={environmentRefreshing}
-          onRefresh={handleRefresh}
-          onInstall={handleInstall}
-          onLaunch={handleLaunch}
-        />
-        {installInProgress || installProgress.length > 0 ? (
-          <InstallProgressPanel entries={installProgress} running={installInProgress} />
-        ) : null}
-        {lastInstallResult ? <InstallReport result={lastInstallResult} /> : null}
-        <NextStepsPanel
-          connectivity={connectivity}
-          environment={environment}
-          installInProgress={installInProgress}
-          installResult={lastInstallResult}
-          status={status}
-        />
-      </section>
+        <button
+          aria-label="Token 用量"
+          className={`token-rail ${activeSection === "token" ? "is-active" : ""}`}
+          type="button"
+          onClick={() => setActiveSection("token")}
+        >
+          <span className="token-rail__ring">
+            <span className="token-rail__value">
+              {tokenUsage?.ok ? `${Math.min(99, Math.round(tokenUsage.totals.totalCostUsd * 10))}%` : "--"}
+            </span>
+          </span>
+          <span className="token-rail__label">Token 用量</span>
+        </button>
+      </aside>
 
-      <section style={sectionStyle}>
-        <div style={sectionHeadingStyle}>
-          <h2 style={sectionTitleStyle}>Anthropic 配置</h2>
-          <p style={sectionCopyStyle}>保存 API 参数并立即校验连通性。</p>
-        </div>
+      <section className="claudehub-main">
+        <header className="section-header">
+          <div className="section-header__title-row">
+            <h1>{currentMeta.title}</h1>
+            <span className="section-header__brand">✳ ClaudeCode</span>
+          </div>
+          <p>{currentMeta.subtitle}</p>
+        </header>
 
-        <div style={panelStyle}>
-          <ConfigForm onSubmit={handleSave} />
-          <ConnectivityBanner result={connectivity} />
+        <div className="section-body">
+          {activeSection === "config" ? (
+            <>
+              <div className="metric-grid">
+                <MetricCard label="环境状态" value={environment ? `${configSummary.ready}/${configSummary.total}` : "--"} />
+                <MetricCard
+                  label="配置状态"
+                  value={savedConfig?.apiKey || configPlaceholders?.apiKey ? "Ready" : "Pending"}
+                />
+                <MetricCard label="最近安装" value={lastInstallResult ? (lastInstallResult.ok ? "Success" : "Retry") : "None"} />
+                <MetricCard label="当前状态" value={status} long tone={currentStatusTone} />
+              </div>
+              <div className="dependency-grid">
+                {environment?.dependencies.map((dependency) => (
+                  <DependencyCard key={dependency.name} dependency={dependency} />
+                ))}
+              </div>
+              <InstallActions
+                launchAvailable={Boolean((window.pclaude as RendererApi | undefined)?.launchClaudeCode)}
+                launchEnabled={environment !== null && isEnvironmentReady(environment) && !installInProgress}
+                installInProgress={installInProgress}
+                refreshInProgress={environmentRefreshing}
+                onRefresh={handleRefresh}
+                onInstall={handleInstall}
+                onLaunch={handleLaunch}
+              />
+              <div className="panel-card panel-card--config">
+                <ConfigForm
+                  initialValue={savedConfig}
+                  placeholderValue={mergeConfigPlaceholders(configPlaceholders, savedConfig)}
+                  onSubmit={handleSaveConfig}
+                />
+                <ConnectivityBanner result={connectivity} />
+              </div>
+              {installInProgress || installProgress.length > 0 ? (
+                <InstallProgressPanel entries={installProgress} running={installInProgress} />
+              ) : null}
+              {lastInstallResult ? <InstallReport result={lastInstallResult} /> : null}
+              <NextStepsPanel
+                connectivity={connectivity}
+                environment={environment}
+                installInProgress={installInProgress}
+                installResult={lastInstallResult}
+                status={status}
+              />
+            </>
+          ) : null}
+
+          {activeSection === "mcp" ? (
+            <>
+              <OverviewBlock
+                countLabel={`已配置 ${mcpRecords.length} 项`}
+                enabledLabel={`本地发现 ${discoveredMcpRecords.length} 项`}
+                statusLabel={mcpRecords[0]?.name ?? "暂无最近项"}
+              />
+              <LibraryEditor
+                discoveries={discoveredMcpRecords}
+                kind="mcp"
+                onDelete={handleDeleteMcp}
+                onImport={handleImportMcp}
+                onRefreshDiscoveries={refreshLibraryData}
+                onSave={handleSaveMcp}
+                records={mcpRecords}
+              />
+              <ActivityList entries={mcpActivity} emptyLabel="还没有 MCP 活动记录。" />
+            </>
+          ) : null}
+
+          {activeSection === "skill" ? (
+            <>
+              <OverviewBlock
+                countLabel={`已配置 ${skillRecords.length} 项`}
+                enabledLabel={`本地发现 ${discoveredSkillRecords.length} 项`}
+                statusLabel={skillRecords[0]?.name ?? "暂无最近项"}
+              />
+              <LibraryEditor
+                discoveries={discoveredSkillRecords}
+                kind="skill"
+                onDelete={handleDeleteSkill}
+                onImport={handleImportSkill}
+                onRefreshDiscoveries={refreshLibraryData}
+                onSave={handleSaveSkill}
+                records={skillRecords}
+              />
+              <ActivityList entries={skillActivity} emptyLabel="还没有 Skill 活动记录。" />
+            </>
+          ) : null}
+
+          {activeSection === "token" ? (
+            <TokenUsagePanel
+              adminConfig={anthropicAdminConfig}
+              range={tokenRange}
+              result={tokenUsage}
+              onRangeChange={setTokenRange}
+              onRefresh={refreshAnthropicUsage}
+              onSaveConfig={handleSaveAnthropicAdminConfig}
+            />
+          ) : null}
         </div>
       </section>
     </main>
   );
 }
 
+function RailButton({ label, onClick, selected }: { label: string; onClick: () => void; selected: boolean }) {
+  const isLocalizedLabel = /[\u3400-\u9fff]/u.test(label);
+
+  return (
+    <button className={`rail-button ${selected ? "is-active" : ""}`} type="button" onClick={onClick}>
+      <span className={isLocalizedLabel ? "rail-button__label rail-button__label--localized" : "rail-button__label"}>
+        {label}
+      </span>
+    </button>
+  );
+}
+
+function OverviewBlock({
+  countLabel,
+  enabledLabel,
+  statusLabel
+}: {
+  countLabel: string;
+  enabledLabel: string;
+  statusLabel: string;
+}) {
+  return (
+    <div className="metric-grid">
+      <MetricCard label="总量" value={countLabel} />
+      <MetricCard label="启用" value={enabledLabel} />
+      <MetricCard label="最近更新" value={statusLabel} long />
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  long = false,
+  tone = "default"
+}: {
+  label: string;
+  value: string;
+  long?: boolean;
+  tone?: "default" | "running";
+}) {
+  return (
+    <article className={`metric-card ${long ? "is-wide" : ""} ${tone === "running" ? "metric-card--running" : ""}`}>
+      <span className="metric-card__label">{label}</span>
+      <strong className="metric-card__value">{value}</strong>
+    </article>
+  );
+}
+
+function resolveStatusTone(status: string): "default" | "running" {
+  return /Claude Code 已在终端中启动/u.test(status) ? "running" : "default";
+}
+
+function ActivityList({ entries, emptyLabel }: { entries: ActivityEntry[]; emptyLabel: string }) {
+  if (entries.length === 0) {
+    return <p className="empty-copy">{emptyLabel}</p>;
+  }
+
+  return (
+    <section className="panel-card">
+      <ul className="activity-list">
+        {entries.map((entry) => (
+          <li key={entry.id} className="activity-list__item">
+            <div>
+              <strong>{entry.label}</strong>
+              <p>{entry.detail ?? "已更新记录。"}</p>
+            </div>
+            <span>{entry.action}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function InstallReport({ result }: { result: InstallResult }) {
   return (
-    <section style={reportStyle}>
-      <div style={sectionHeadingStyle}>
-        <h3 style={reportTitleStyle}>安装报告</h3>
-        <p style={sectionCopyStyle}>最近一次安装结果。</p>
+    <section className="panel-card">
+      <div className="panel-card__heading">
+        <h3>安装报告</h3>
+        <p>最近一次安装结果。</p>
       </div>
-      <ul style={reportListStyle}>
+      <ul className="activity-list">
         {result.steps.map((step) => (
-          <li key={`${step.name}-${step.state}-${step.message ?? "none"}`} style={reportItemStyle}>
-            <div style={reportHeaderStyle}>
-              <span style={reportNameStyle}>{localizeDependencyName(step.name)}</span>
-              <span style={reportStateStyle(step.state)}>{localizeInstallState(step.state)}</span>
+          <li key={`${step.name}-${step.state}-${step.message ?? "none"}`} className="activity-list__item">
+            <div>
+              <strong>{localizeDependencyName(step.name)}</strong>
+              {step.message ? <p>{localizeMessage(step.message)}</p> : null}
             </div>
-            {step.message ? <p style={reportMessageStyle}>{localizeMessage(step.message)}</p> : null}
+            <span>{localizeInstallState(step.state)}</span>
           </li>
         ))}
       </ul>
@@ -269,20 +612,22 @@ function InstallProgressPanel({ entries, running }: { entries: InstallProgressEn
   const latestEntry = entries.at(-1);
 
   return (
-    <section style={progressPanelStyle} aria-live="polite">
-      <div style={sectionHeadingStyle}>
-        <h3 style={reportTitleStyle}>安装进度</h3>
-        <p style={sectionCopyStyle}>{running ? "正在执行安装任务。" : "展示最近一次安装的进度记录。"}</p>
+    <section className="panel-card" aria-live="polite">
+      <div className="panel-card__heading">
+        <h3>安装进度</h3>
+        <p>{running ? "正在执行安装任务。" : "展示最近一次安装的进度记录。"}</p>
       </div>
-      <p style={progressStatusStyle}>{latestEntry ? formatInstallProgressStatus(latestEntry) : "等待安装事件…"}</p>
-      <ul style={reportListStyle}>
+      <p className="panel-card__status">
+        {latestEntry ? formatInstallProgressStatus(latestEntry) : "等待安装事件…"}
+      </p>
+      <ul className="activity-list">
         {entries.map((entry) => (
-          <li key={entry.id} style={reportItemStyle}>
-            <div style={reportHeaderStyle}>
-              <span style={reportNameStyle}>{localizeDependencyName(entry.dependency)}</span>
-              <span style={reportStateStyle(entry.stage)}>{localizeInstallStage(entry.stage)}</span>
+          <li key={entry.id} className="activity-list__item">
+            <div>
+              <strong>{localizeDependencyName(entry.dependency)}</strong>
+              <p>{formatInstallProgressMessage(entry)}</p>
             </div>
-            <p style={reportMessageStyle}>{formatInstallProgressMessage(entry)}</p>
+            <span>{localizeInstallStage(entry.stage)}</span>
           </li>
         ))}
       </ul>
@@ -311,25 +656,122 @@ function NextStepsPanel({
     status
   });
 
-  if (steps.length === 0) {
-    return null;
-  }
-
   return (
-    <section style={reportStyle}>
-      <div style={sectionHeadingStyle}>
-        <h3 style={reportTitleStyle}>下一步</h3>
-        <p style={sectionCopyStyle}>根据当前状态继续处理。</p>
+    <section className="panel-card">
+      <div className="panel-card__heading">
+        <h3>下一步</h3>
+        <p>根据当前状态继续处理。</p>
       </div>
-      <ul style={reportListStyle}>
+      <ul className="activity-list">
         {steps.map((step) => (
-          <li key={step} style={reportItemStyle}>
-            <p style={reportMessageStyle}>{step}</p>
+          <li key={step} className="activity-list__item">
+            <div>
+              <p>{step}</p>
+            </div>
           </li>
         ))}
       </ul>
     </section>
   );
+}
+
+async function loadSavedConfig(
+  api: RendererApi | undefined,
+  cancelled: boolean,
+  setSavedConfig: (value: ConfigInput | null) => void
+) {
+  if (cancelled || !api?.readConfig) {
+    return;
+  }
+
+  const config = await api.readConfig();
+  setSavedConfig(config);
+}
+
+async function loadConfigPlaceholders(
+  api: RendererApi | undefined,
+  cancelled: boolean,
+  setConfigPlaceholders: (value: Partial<ConfigInput> | null) => void
+) {
+  if (cancelled || !api?.readConfigPlaceholders) {
+    return;
+  }
+
+  const placeholders = await api.readConfigPlaceholders();
+  setConfigPlaceholders(placeholders);
+}
+
+function mergeConfigPlaceholders(
+  placeholderConfig: Partial<ConfigInput> | null,
+  savedConfig: ConfigInput | null
+): Partial<ConfigInput> | null {
+  if (!placeholderConfig && !savedConfig) {
+    return null;
+  }
+
+  return {
+    apiKey: placeholderConfig?.apiKey ?? savedConfig?.apiKey ?? "",
+    baseUrl: placeholderConfig?.baseUrl ?? savedConfig?.baseUrl ?? "",
+    model: placeholderConfig?.model ?? savedConfig?.model ?? ""
+  };
+}
+
+async function loadLibraryData(
+  api: RendererApi | undefined,
+  cancelled: boolean,
+  setMcpRecords: (value: McpRecord[]) => void,
+  setSkillRecords: (value: SkillRecord[]) => void,
+  setDiscoveredMcpRecords: (value: DiscoveredMcpRecord[]) => void,
+  setDiscoveredSkillRecords: (value: DiscoveredSkillRecord[]) => void,
+  setMcpActivity: (value: ActivityEntry[]) => void,
+  setSkillActivity: (value: ActivityEntry[]) => void
+) {
+  if (cancelled || !api) {
+    return;
+  }
+
+  const [mcp, skill, discoveredMcp, discoveredSkill, mcpActivity, skillActivity] = await Promise.all([
+    api.listMcpRecords?.() ?? Promise.resolve([]),
+    api.listSkillRecords?.() ?? Promise.resolve([]),
+    api.scanMcpRecords?.() ?? Promise.resolve([]),
+    api.scanSkillRecords?.() ?? Promise.resolve([]),
+    api.listActivityEntries?.("mcp") ?? Promise.resolve([]),
+    api.listActivityEntries?.("skill") ?? Promise.resolve([])
+  ]);
+
+  setMcpRecords(mcp);
+  setSkillRecords(skill);
+  setDiscoveredMcpRecords(discoveredMcp);
+  setDiscoveredSkillRecords(discoveredSkill);
+  setMcpActivity(mcpActivity);
+  setSkillActivity(skillActivity);
+}
+
+async function loadAnthropicConfig(
+  api: RendererApi | undefined,
+  cancelled: boolean,
+  setAnthropicAdminConfig: (value: AnthropicAdminConfig) => void,
+  setTokenUsage: (value: AnthropicUsageResult | null) => void,
+  range: TokenUsageRange
+) {
+  if (cancelled || !api?.getAnthropicAdminConfig) {
+    return;
+  }
+
+  const config = await api.getAnthropicAdminConfig();
+  setAnthropicAdminConfig(config);
+
+  if (!api.getAnthropicUsage) {
+    setTokenUsage({
+      ok: false,
+      reason: "missing_key",
+      message: "当前版本暂不支持读取 Token 用量。"
+    });
+    return;
+  }
+
+  const usage = await api.getAnthropicUsage({ range });
+  setTokenUsage(usage);
 }
 
 function isEnvironmentReady(result: DetectEnvironmentResult): boolean {
@@ -466,155 +908,3 @@ function attachInstallProgressListener(
 
   return subscribe(listener);
 }
-
-const mainStyle: CSSProperties = {
-  minHeight: "100%",
-  maxWidth: 1120,
-  margin: "0 auto",
-  padding: 16,
-  display: "grid",
-  gap: 12,
-  background: "#1e1e1e",
-  color: "#cccccc"
-};
-
-const heroStyle: CSSProperties = {
-  display: "grid",
-  gap: 4
-};
-
-const eyebrowStyle: CSSProperties = {
-  margin: 0,
-  color: "#8c8c8c",
-  fontSize: 11,
-  fontWeight: 600
-};
-
-const headingStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 24,
-  lineHeight: 1.2,
-  color: "#ffffff",
-  fontWeight: 600
-};
-
-const statusStyle: CSSProperties = {
-  margin: 0,
-  color: "#9d9d9d",
-  fontSize: 12
-};
-
-const sectionStyle: CSSProperties = {
-  display: "grid",
-  gap: 8
-};
-
-const sectionHeadingStyle: CSSProperties = {
-  display: "grid",
-  gap: 2
-};
-
-const sectionTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 14,
-  color: "#ffffff",
-  fontWeight: 600
-};
-
-const sectionCopyStyle: CSSProperties = {
-  margin: 0,
-  color: "#8c8c8c",
-  fontSize: 12
-};
-
-const gridStyle: CSSProperties = {
-  display: "grid",
-  gap: 8,
-  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))"
-};
-
-const panelStyle: CSSProperties = {
-  display: "grid",
-  gap: 10,
-  maxWidth: 720,
-  padding: 12,
-  borderRadius: 8,
-  background: "#252526",
-  border: "1px solid #3c3c3c"
-};
-
-const reportStyle: CSSProperties = {
-  display: "grid",
-  gap: 8,
-  padding: 12,
-  borderRadius: 8,
-  background: "#252526",
-  border: "1px solid #3c3c3c"
-};
-
-const reportTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#ffffff"
-};
-
-const reportListStyle: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "grid",
-  gap: 6
-};
-
-const reportItemStyle: CSSProperties = {
-  display: "grid",
-  gap: 4,
-  padding: 10,
-  borderRadius: 8,
-  background: "#1f1f1f",
-  border: "1px solid #3c3c3c"
-};
-
-const reportHeaderStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 8
-};
-
-const reportNameStyle: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 600,
-  color: "#ffffff"
-};
-
-function reportStateStyle(state: string): CSSProperties {
-  return {
-    borderRadius: 8,
-    border: "1px solid #3c3c3c",
-    padding: "2px 8px",
-    fontSize: 11,
-    fontWeight: 600,
-    color: "#cccccc",
-    background: "#1e1e1e"
-  };
-}
-
-const reportMessageStyle: CSSProperties = {
-  margin: 0,
-  color: "#cccccc",
-  lineHeight: 1.5,
-  fontSize: 12
-};
-
-const progressPanelStyle: CSSProperties = {
-  ...reportStyle
-};
-
-const progressStatusStyle: CSSProperties = {
-  margin: 0,
-  color: "#9d9d9d",
-  fontSize: 12,
-  lineHeight: 1.5
-};

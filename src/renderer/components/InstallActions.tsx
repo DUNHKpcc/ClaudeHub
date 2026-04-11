@@ -21,16 +21,16 @@ export function InstallActions({
 }: InstallActionsProps) {
   return (
     <div style={actionsStyle}>
-      <section style={actionCardStyle}>
+      <section style={createActionCardStyle(actionThemes.refresh)}>
         <div style={copyStackStyle}>
-          <h3 style={titleStyle}>检测</h3>
-          <p style={copyStyle}>
+          <h3 style={createTitleStyle(actionThemes.refresh)}>检测</h3>
+          <p style={createCopyStyle(actionThemes.refresh)}>
             重新执行本机环境检测，刷新 Node、Git、Claude Code 的状态。
           </p>
         </div>
         <button
           disabled={refreshInProgress || installInProgress}
-          style={secondaryButtonStyle}
+          style={createButtonStyle(actionThemes.refresh)}
           type="button"
           onClick={() => void onRefresh()}
         >
@@ -38,10 +38,10 @@ export function InstallActions({
         </button>
       </section>
 
-      <section style={actionCardStyle}>
+      <section style={createActionCardStyle(actionThemes.install)}>
         <div style={copyStackStyle}>
-          <h3 style={titleStyle}>安装</h3>
-          <p style={copyStyle}>
+          <h3 style={createTitleStyle(actionThemes.install)}>安装</h3>
+          <p style={createCopyStyle(actionThemes.install)}>
             {installInProgress
               ? "安装进行中，请保持窗口开启。"
               : "根据当前检测结果安装 Claude Code 与缺失依赖。"}
@@ -50,7 +50,7 @@ export function InstallActions({
         <button
           aria-busy={installInProgress}
           disabled={installInProgress}
-          style={buttonStyle}
+          style={createButtonStyle(actionThemes.install)}
           type="button"
           onClick={() => void onInstall()}
         >
@@ -58,10 +58,10 @@ export function InstallActions({
         </button>
       </section>
 
-      <section style={actionCardStyle}>
+      <section style={createActionCardStyle(actionThemes.launch)}>
         <div style={copyStackStyle}>
-          <h3 style={titleStyle}>启动</h3>
-          <p id="launch-availability" style={copyStyle}>
+          <h3 style={createTitleStyle(actionThemes.launch)}>启动</h3>
+          <p id="launch-availability" style={createCopyStyle(actionThemes.launch)}>
             {launchAvailable
               ? launchEnabled
                 ? "环境就绪后可直接启动 Claude Code。"
@@ -71,7 +71,7 @@ export function InstallActions({
         </div>
         <button
           disabled={installInProgress}
-          style={secondaryButtonStyle}
+          style={createButtonStyle(actionThemes.launch)}
           type="button"
           onClick={() => void onLaunch()}
         >
@@ -85,50 +85,103 @@ export function InstallActions({
 const actionsStyle: CSSProperties = {
   display: "grid",
   gap: 8,
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))"
+  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))"
 };
 
-const actionCardStyle: CSSProperties = {
+const baseActionCardStyle: CSSProperties = {
   display: "grid",
-  gap: 10,
-  padding: 12,
+  gap: 8,
+  padding: 10,
   borderRadius: 8,
-  background: "#252526",
-  border: "1px solid #3c3c3c"
+  alignContent: "start"
 };
 
 const copyStackStyle: CSSProperties = {
   display: "grid",
-  gap: 4
+  gap: 3,
+  minHeight: 56
 };
 
-const titleStyle: CSSProperties = {
+const baseTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: 13,
-  lineHeight: 1.2,
-  color: "#ffffff"
-};
-
-const copyStyle: CSSProperties = {
-  margin: 0,
-  color: "#9d9d9d",
   fontSize: 12,
-  lineHeight: 1.5
+  lineHeight: 1.2
 };
 
-const buttonStyle: CSSProperties = {
+const baseCopyStyle: CSSProperties = {
+  margin: 0,
+  fontSize: 11,
+  lineHeight: 1.4
+};
+
+const baseButtonStyle: CSSProperties = {
   appearance: "none",
-  border: "1px solid #3c3c3c",
   borderRadius: 8,
-  background: "#2d2d30",
   color: "#ffffff",
   cursor: "pointer",
   fontSize: 12,
   fontWeight: 600,
-  padding: "8px 12px"
+  padding: "0 12px",
+  width: "100%",
+  minHeight: 40,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center"
 };
 
-const secondaryButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  background: "#252526"
-};
+const actionThemes = {
+  refresh: {
+    cardBackground: "#1f2d39",
+    cardBorder: "#35556d",
+    titleColor: "#d9efff",
+    copyColor: "#a5c2d9",
+    buttonBackground: "#213544",
+    buttonBorder: "#4d7594"
+  },
+  install: {
+    cardBackground: "#2d231d",
+    cardBorder: "#6e4b34",
+    titleColor: "#ffe4d1",
+    copyColor: "#d4b29a",
+    buttonBackground: "#4a3223",
+    buttonBorder: "#9a6a4d"
+  },
+  launch: {
+    cardBackground: "#1d2b23",
+    cardBorder: "#406a52",
+    titleColor: "#ddf7e6",
+    copyColor: "#a9d3b8",
+    buttonBackground: "#20382a",
+    buttonBorder: "#4f8e69"
+  }
+} as const;
+
+function createActionCardStyle(theme: (typeof actionThemes)[keyof typeof actionThemes]): CSSProperties {
+  return {
+    ...baseActionCardStyle,
+    background: theme.cardBackground,
+    border: `1px solid ${theme.cardBorder}`
+  };
+}
+
+function createTitleStyle(theme: (typeof actionThemes)[keyof typeof actionThemes]): CSSProperties {
+  return {
+    ...baseTitleStyle,
+    color: theme.titleColor
+  };
+}
+
+function createCopyStyle(theme: (typeof actionThemes)[keyof typeof actionThemes]): CSSProperties {
+  return {
+    ...baseCopyStyle,
+    color: theme.copyColor
+  };
+}
+
+function createButtonStyle(theme: (typeof actionThemes)[keyof typeof actionThemes]): CSSProperties {
+  return {
+    ...baseButtonStyle,
+    background: theme.buttonBackground,
+    border: `1px solid ${theme.buttonBorder}`
+  };
+}
