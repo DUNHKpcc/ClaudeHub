@@ -17,7 +17,7 @@ import type {
   SkillRecordInput,
   TokenUsageRange
 } from "../shared/contracts";
-import type { ConfigInput } from "../shared/schemas";
+import type { ConfigInput, DependencyStatus } from "../shared/schemas";
 
 import { ConfigForm } from "./components/ConfigForm";
 import { ConnectivityBanner } from "./components/ConnectivityBanner";
@@ -38,6 +38,7 @@ interface InstallProgressEntry extends InstallProgressEvent {
 
 type RendererApi = Window["pclaude"];
 const CLAUDE_LAUNCH_POLL_INTERVAL_MS = import.meta.env.MODE === "test" ? 20 : 2000;
+const requiredEnvironmentDependencies = new Set<DependencyStatus["name"]>(["node", "npm", "git", "claude"]);
 
 const sectionMeta: Record<
   AppSection,
@@ -70,7 +71,7 @@ export function App() {
   const [mcpActivity, setMcpActivity] = useState<ActivityEntry[]>([]);
   const [skillActivity, setSkillActivity] = useState<ActivityEntry[]>([]);
   const [anthropicAdminConfig, setAnthropicAdminConfig] = useState<AnthropicAdminConfig>({ adminKey: "" });
-  const [tokenRange, setTokenRange] = useState<TokenUsageRange>("7d");
+  const [tokenRange, setTokenRange] = useState<TokenUsageRange>("30d");
   const [tokenUsage, setTokenUsage] = useState<AnthropicUsageResult | null>(null);
 
   const currentMeta = sectionMeta[activeSection];
@@ -260,7 +261,7 @@ export function App() {
     }
 
     await api.saveMcpRecord(input as McpRecordInput);
-    await refreshLibraryData();
+    await refreshMcpData();
   }
 
   async function handleImportMcp(input: DiscoveredMcpRecord) {
@@ -270,7 +271,7 @@ export function App() {
     }
 
     await api.importMcpRecord(input);
-    await refreshLibraryData();
+    await refreshMcpData();
   }
 
   async function handleDeleteMcp(id: string) {
@@ -280,7 +281,7 @@ export function App() {
     }
 
     await api.deleteMcpRecord(id);
-    await refreshLibraryData();
+    await refreshMcpData();
   }
 
   async function handleSaveSkill(input: McpRecordInput | SkillRecordInput) {
@@ -290,7 +291,7 @@ export function App() {
     }
 
     await api.saveSkillRecord(input as SkillRecordInput);
-    await refreshLibraryData();
+    await refreshSkillData();
   }
 
   async function handleImportSkill(input: DiscoveredSkillRecord) {
@@ -300,7 +301,7 @@ export function App() {
     }
 
     await api.importSkillRecord(input);
-    await refreshLibraryData();
+    await refreshSkillData();
   }
 
   async function handleDeleteSkill(id: string) {
@@ -310,38 +311,47 @@ export function App() {
     }
 
     await api.deleteSkillRecord(id);
-    await refreshLibraryData();
+    await refreshSkillData();
   }
 
-  async function refreshLibraryData() {
+  async function refreshMcpData() {
     const api = window.pclaude as RendererApi | undefined;
 
     if (!api) {
       return;
     }
 
-    const [
-      nextMcpRecords,
-      nextSkillRecords,
-      nextDiscoveredMcpRecords,
-      nextDiscoveredSkillRecords,
-      nextMcpActivity,
-      nextSkillActivity
-    ] = await Promise.all([
+    const [nextMcpRecords, nextDiscoveredMcpRecords, nextMcpActivity] = await Promise.all([
       api.listMcpRecords?.() ?? Promise.resolve([]),
-      api.listSkillRecords?.() ?? Promise.resolve([]),
       api.scanMcpRecords?.() ?? Promise.resolve([]),
-      api.scanSkillRecords?.() ?? Promise.resolve([]),
-      api.listActivityEntries?.("mcp") ?? Promise.resolve([]),
-      api.listActivityEntries?.("skill") ?? Promise.resolve([])
+      api.listActivityEntries?.("mcp") ?? Promise.resolve([])
     ]);
 
     setMcpRecords(nextMcpRecords);
-    setSkillRecords(nextSkillRecords);
     setDiscoveredMcpRecords(nextDiscoveredMcpRecords);
-    setDiscoveredSkillRecords(nextDiscoveredSkillRecords);
     setMcpActivity(nextMcpActivity);
+  }
+
+  async function refreshSkillData() {
+    const api = window.pclaude as RendererApi | undefined;
+
+    if (!api) {
+      return;
+    }
+
+    const [nextSkillRecords, nextDiscoveredSkillRecords, nextSkillActivity] = await Promise.all([
+      api.listSkillRecords?.() ?? Promise.resolve([]),
+      api.scanSkillRecords?.() ?? Promise.resolve([]),
+      api.listActivityEntries?.("skill") ?? Promise.resolve([])
+    ]);
+
+    setSkillRecords(nextSkillRecords);
+    setDiscoveredSkillRecords(nextDiscoveredSkillRecords);
     setSkillActivity(nextSkillActivity);
+  }
+
+  async function refreshLibraryData() {
+    await Promise.all([refreshMcpData(), refreshSkillData()]);
   }
 
   async function handleSaveAnthropicAdminConfig(input: AnthropicAdminConfig) {
@@ -368,8 +378,10 @@ export function App() {
   }
 
   const configSummary = useMemo(() => {
-    const total = environment?.dependencies.length ?? 0;
-    const ready = environment?.dependencies.filter((dependency) => dependency.state === "installed").length ?? 0;
+    const requiredDependencies =
+      environment?.dependencies.filter((dependency) => requiredEnvironmentDependencies.has(dependency.name)) ?? [];
+    const total = requiredDependencies.length;
+    const ready = requiredDependencies.filter((dependency) => dependency.state === "installed").length;
     return { total, ready };
   }, [environment]);
   const currentStatusTone = resolveStatusTone(status);
@@ -378,9 +390,9 @@ export function App() {
     <main className="claudehub-shell">
       <aside className="claudehub-rail">
         <div className="claudehub-rail__top">
-          <RailButton label="Config" selected={activeSection === "config"} onClick={() => setActiveSection("config")} />
-          <RailButton label="MCP" selected={activeSection === "mcp"} onClick={() => setActiveSection("mcp")} />
-          <RailButton label="Skill" selected={activeSection === "skill"} onClick={() => setActiveSection("skill")} />
+          <RailButton icon="config" label="Config" selected={activeSection === "config"} onClick={() => setActiveSection("config")} />
+          <RailButton icon="mcp" label="MCP" selected={activeSection === "mcp"} onClick={() => setActiveSection("mcp")} />
+          <RailButton icon="skill" label="Skill" selected={activeSection === "skill"} onClick={() => setActiveSection("skill")} />
         </div>
 
         <button
@@ -389,6 +401,9 @@ export function App() {
           type="button"
           onClick={() => setActiveSection("token")}
         >
+          <span className="token-rail__icon" data-testid="rail-icon-token" aria-hidden="true">
+            <RailIcon kind="token" />
+          </span>
           <span className="token-rail__ring">
             <span className="token-rail__value">
               {tokenUsage?.ok ? `${Math.min(99, Math.round(tokenUsage.totals.totalCostUsd * 10))}%` : "--"}
@@ -414,9 +429,12 @@ export function App() {
                 <MetricCard label="环境状态" value={environment ? `${configSummary.ready}/${configSummary.total}` : "--"} />
                 <MetricCard
                   label="配置状态"
-                  value={savedConfig?.apiKey || configPlaceholders?.apiKey ? "Ready" : "Pending"}
+                  value={savedConfig?.apiKey || configPlaceholders?.apiKey ? "已配置" : "待配置"}
                 />
-                <MetricCard label="最近安装" value={lastInstallResult ? (lastInstallResult.ok ? "Success" : "Retry") : "None"} />
+                <MetricCard
+                  label="最近安装"
+                  value={lastInstallResult ? (lastInstallResult.ok ? "成功" : "需重试") : "未安装"}
+                />
                 <MetricCard label="当前状态" value={status} long tone={currentStatusTone} />
               </div>
               <div className="dependency-grid">
@@ -466,8 +484,14 @@ export function App() {
                 discoveries={discoveredMcpRecords}
                 kind="mcp"
                 onDelete={handleDeleteMcp}
-                onImport={handleImportMcp}
-                onRefreshDiscoveries={refreshLibraryData}
+                onImport={async (input) => {
+                  if (!isDiscoveredMcpRecord(input)) {
+                    return;
+                  }
+
+                  await handleImportMcp(input);
+                }}
+                onRefreshDiscoveries={refreshMcpData}
                 onSave={handleSaveMcp}
                 records={mcpRecords}
               />
@@ -486,8 +510,14 @@ export function App() {
                 discoveries={discoveredSkillRecords}
                 kind="skill"
                 onDelete={handleDeleteSkill}
-                onImport={handleImportSkill}
-                onRefreshDiscoveries={refreshLibraryData}
+                onImport={async (input) => {
+                  if (!isDiscoveredSkillRecord(input)) {
+                    return;
+                  }
+
+                  await handleImportSkill(input);
+                }}
+                onRefreshDiscoveries={refreshSkillData}
                 onSave={handleSaveSkill}
                 records={skillRecords}
               />
@@ -511,16 +541,69 @@ export function App() {
   );
 }
 
-function RailButton({ label, onClick, selected }: { label: string; onClick: () => void; selected: boolean }) {
+function RailButton({
+  icon,
+  label,
+  onClick,
+  selected
+}: {
+  icon: "config" | "mcp" | "skill";
+  label: string;
+  onClick: () => void;
+  selected: boolean;
+}) {
   const isLocalizedLabel = /[\u3400-\u9fff]/u.test(label);
 
   return (
     <button className={`rail-button ${selected ? "is-active" : ""}`} type="button" onClick={onClick}>
+      <span className="rail-button__icon" data-testid={`rail-icon-${icon}`} aria-hidden="true">
+        <RailIcon kind={icon} />
+      </span>
       <span className={isLocalizedLabel ? "rail-button__label rail-button__label--localized" : "rail-button__label"}>
         {label}
       </span>
     </button>
   );
+}
+
+function RailIcon({ kind }: { kind: "config" | "mcp" | "skill" | "token" }) {
+  switch (kind) {
+    case "config":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3.5 4.5 7.5v9L12 20.5l7.5-4v-9L12 3.5Z" />
+          <path d="M12 8.5v7" />
+          <path d="M8.5 12h7" />
+        </svg>
+      );
+    case "mcp":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="5" width="6" height="6" rx="1.5" />
+          <rect x="14" y="5" width="6" height="6" rx="1.5" />
+          <rect x="9" y="13" width="6" height="6" rx="1.5" />
+          <path d="M10 8h4" />
+          <path d="M12 11v2" />
+        </svg>
+      );
+    case "skill":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M7 5.5h7l3 3V18.5H7z" />
+          <path d="M14 5.5v3h3" />
+          <path d="M9.5 12h5" />
+          <path d="M9.5 15h5" />
+        </svg>
+      );
+    case "token":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 17 10 12l3 3 6-7" />
+          <path d="M5 7v10" />
+          <path d="M5 17h14" />
+        </svg>
+      );
+  }
 }
 
 function OverviewBlock({
@@ -716,6 +799,18 @@ function mergeConfigPlaceholders(
   };
 }
 
+function isDiscoveredMcpRecord(
+  input: DiscoveredMcpRecord | DiscoveredSkillRecord
+): input is DiscoveredMcpRecord {
+  return "command" in input && Array.isArray(input.args);
+}
+
+function isDiscoveredSkillRecord(
+  input: DiscoveredMcpRecord | DiscoveredSkillRecord
+): input is DiscoveredSkillRecord {
+  return "content" in input && Array.isArray(input.tags);
+}
+
 async function loadLibraryData(
   api: RendererApi | undefined,
   cancelled: boolean,
@@ -775,7 +870,9 @@ async function loadAnthropicConfig(
 }
 
 function isEnvironmentReady(result: DetectEnvironmentResult): boolean {
-  return result.dependencies.every((dependency) => dependency.state === "installed");
+  return result.dependencies
+    .filter((dependency) => requiredEnvironmentDependencies.has(dependency.name))
+    .every((dependency) => dependency.state === "installed");
 }
 
 function buildInstallStatusMessage(result: InstallResult): string {

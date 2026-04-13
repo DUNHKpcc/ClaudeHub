@@ -33,7 +33,7 @@ export function TokenUsagePanel({
         <MetricCard label="Output" value={result?.ok ? formatNumber(result.totals.outputTokens) : "--"} />
         <MetricCard
           label="Cost"
-          value={result?.ok && result.hasCostData ? `$${result.totals.totalCostUsd.toFixed(2)}` : "--"}
+          value={result?.ok && result.hasCostData ? formatUsd(result.totals.totalCostUsd) : "--"}
         />
       </section>
 
@@ -121,20 +121,20 @@ function TokenUsageChart({
   }>;
 }) {
   const isSparse = rows.length <= 3;
-  const chartHeight = isSparse ? 168 : 136;
-  const chartWidth = isSparse ? Math.max(460, rows.length * 62 + 308) : Math.max(280, rows.length * 40);
+  const chartHeight = isSparse ? 168 : 184;
+  const chartWidth = isSparse ? Math.max(460, rows.length * 62 + 308) : Math.max(360, rows.length * 44);
   const margin = {
     top: isSparse ? 12 : 8,
     right: 14,
-    bottom: isSparse ? 34 : 30,
-    left: isSparse ? 58 : 46
+    bottom: isSparse ? 34 : 34,
+    left: isSparse ? 58 : 54
   };
   const plotWidth = chartWidth - margin.left - margin.right;
   const plotHeight = chartHeight - margin.top - margin.bottom;
   const maxTokens = Math.max(...rows.map((row) => row.totalTokens), 1);
   const tickCount = 4;
   const step = plotWidth / Math.max(rows.length, 1);
-  const barWidth = isSparse ? Math.min(22, Math.max(11, step * 0.26)) : Math.min(12, Math.max(6, step * 0.24));
+  const barWidth = isSparse ? Math.min(22, Math.max(11, step * 0.26)) : Math.min(16, Math.max(10, step * 0.32));
   const tickValues = Array.from({ length: tickCount + 1 }, (_, index) =>
     Math.round((maxTokens * (tickCount - index)) / tickCount)
   );
@@ -177,10 +177,12 @@ function TokenUsageChart({
 
           {rows.map((row, index) => {
             const x = margin.left + step * index + (step - barWidth) / 2;
-            const totalHeight = (row.totalTokens / maxTokens) * plotHeight;
+            const totalHeight = resolveBarHeight(row.totalTokens, maxTokens, plotHeight, isSparse);
             const totalY = margin.top + plotHeight - totalHeight;
             const totalLabelY = totalY - 8;
             const totalFill = getTokenHeatColor(row.totalTokens, maxTokens);
+            const axisLabel = formatAxisLabel(row.label, isSparse);
+            const showAxisLabel = shouldShowAxisLabel(index, rows.length, isSparse);
 
             return (
               <g key={row.label}>
@@ -211,7 +213,7 @@ function TokenUsageChart({
                   x={x + barWidth / 2}
                   y={chartHeight - 8}
                 >
-                  {row.label}
+                  {showAxisLabel ? axisLabel : ""}
                 </text>
               </g>
             );
@@ -223,6 +225,43 @@ function TokenUsageChart({
   );
 }
 
+function resolveBarHeight(totalTokens: number, maxTokens: number, plotHeight: number, isSparse: boolean) {
+  if (maxTokens <= 0 || totalTokens <= 0) {
+    return 2;
+  }
+
+  const normalized = isSparse
+    ? totalTokens / maxTokens
+    : Math.log1p(totalTokens) / Math.log1p(maxTokens);
+
+  return Math.max(normalized * plotHeight, 2);
+}
+
+function formatAxisLabel(label: string, isSparse: boolean) {
+  if (isSparse) {
+    return label;
+  }
+
+  const matched = label.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+  if (matched) {
+    return `${matched[2]}/${matched[3]}`;
+  }
+
+  return label;
+}
+
+function shouldShowAxisLabel(index: number, total: number, isSparse: boolean) {
+  if (isSparse || total <= 12) {
+    return true;
+  }
+
+  if (total <= 21) {
+    return index % 2 === 0 || index === total - 1;
+  }
+
+  return index % 3 === 0 || index === total - 1;
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }
@@ -232,6 +271,18 @@ function formatCompactNumber(value: number) {
     notation: value >= 10_000 ? "compact" : "standard",
     maximumFractionDigits: value >= 10_000 ? 1 : 0
   }).format(value);
+}
+
+function formatUsd(value: number) {
+  if (value >= 1) {
+    return `$${value.toFixed(2)}`;
+  }
+
+  if (value >= 0.01) {
+    return `$${value.toFixed(3)}`;
+  }
+
+  return `$${value.toFixed(5)}`;
 }
 
 function getTokenHeatColor(totalTokens: number, maxTokens: number) {

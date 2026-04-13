@@ -60,17 +60,36 @@ button {
 }
 
 .rail-button {
-  min-height: 52px;
+  min-height: 74px;
   border: 0;
   border-radius: 16px;
   background: transparent;
   color: #ce9b7a;
-  padding: 0 10px;
+  padding: 8px 10px 10px;
   text-align: center;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 6px;
 }
 
 .rail-button.is-active {
   background: #26262a;
+}
+
+.rail-button__icon,
+.token-rail__icon {
+  inline-size: 20px;
+  block-size: 20px;
+  display: inline-grid;
+  place-items: center;
+  color: currentColor;
+}
+
+.rail-button__icon svg,
+.token-rail__icon svg {
+  inline-size: 100%;
+  block-size: 100%;
 }
 
 .rail-button__label {
@@ -90,6 +109,7 @@ button {
   display: grid;
   gap: 8px;
   justify-items: center;
+  padding: 8px 0 0;
 }
 
 .token-rail__ring {
@@ -290,18 +310,29 @@ button {
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
+  min-height: clamp(520px, calc(100vh - 280px), 760px);
+  height: min(760px, calc(100vh - 220px));
+  max-height: calc(100vh - 220px);
+  min-width: 0;
 }
 
 .library-editor__list,
 .library-editor__form,
-.token-panel__summary,
 .token-panel__controls,
 .token-panel__table {
   background: #26262a;
   border: 1px solid rgba(206, 155, 122, 0.08);
   border-radius: 18px;
   padding: 14px 16px;
+  min-height: 0;
+}
+
+.library-editor__list {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
 }
 
 .library-editor__header {
@@ -309,7 +340,6 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
 }
 
 .library-editor__header-actions {
@@ -325,7 +355,7 @@ button {
 .library-editor__discoveries {
   display: grid;
   gap: 8px;
-  margin-bottom: 12px;
+  min-height: 0;
 }
 
 .library-editor__items,
@@ -335,6 +365,24 @@ button {
   list-style: none;
   padding: 0;
   margin: 0;
+}
+
+.library-editor__discoveries-list {
+  min-height: 0;
+  padding-right: 4px;
+  overflow: auto;
+}
+
+.library-editor__records {
+  min-height: 0;
+  padding-right: 4px;
+  overflow: auto;
+}
+
+.library-editor__form-body {
+  min-height: 0;
+  padding-right: 4px;
+  overflow: auto;
 }
 
 .library-record {
@@ -377,10 +425,25 @@ button {
   min-width: 0;
 }
 
+.discovery-record__action {
+  width: 92px;
+  flex: 0 0 92px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  text-align: center;
+}
+
 .library-editor__form,
 .token-panel {
   display: grid;
   gap: 12px;
+}
+
+.library-editor__form {
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .token-panel__controls {

@@ -22,6 +22,7 @@ import {
 
 class MockChildProcess extends EventEmitter {
   pid?: number;
+  stdout?: EventEmitter;
 
   unref = vi.fn();
 }
@@ -52,13 +53,24 @@ describe("launch service", () => {
     expect(settled).toBe(false);
     const [command, args, options] = spawnMock.mock.calls[0]!;
     expect(command).toBe("osascript");
-    expect(args).toHaveLength(2);
-    expect(args[0]).toBe("-e");
-    expect(args[1]).toContain("launch");
-    expect(args[1]).toContain('set targetTab to do script ""');
-    expect(args[1]).toContain("delay 1");
-    expect(args[1]).toContain('do script "claude" in targetTab');
-    expect(args[1]).not.toContain('set current settings of front window');
+    expect(args).toEqual([
+      "-e",
+      'tell application "Terminal"',
+      "-e",
+      "launch",
+      "-e",
+      'set targetTab to do script ""',
+      "-e",
+      "delay 1",
+      "-e",
+      'do script "claude" in targetTab',
+      "-e",
+      expect.stringContaining('set custom title of targetTab to "pclaude-claude-'),
+      "-e",
+      "activate",
+      "-e",
+      "end tell"
+    ]);
     expect(options).toEqual({
       env: expect.objectContaining({
         TERM: undefined,
@@ -227,15 +239,116 @@ describe("launch service", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       "osascript",
-      [
+      expect.arrayContaining([
         "-e",
-        expect.stringContaining('tell application "Terminal"')
-      ],
+        'tell application "Terminal"',
+        "-e",
+        expect.stringContaining('if custom title of targetTab is "pclaude-claude-'),
+        "-e",
+        "close targetTab saving no",
+        "-e",
+        "end tell"
+      ]),
       {
         env: process.env,
         stdio: "ignore"
       }
     );
+  });
+
+  it("builds the macOS Terminal state-check script as discrete osascript lines", async () => {
+    const launchChild = new MockChildProcess();
+    launchChild.pid = 1357;
+    const checkChild = new MockChildProcess();
+    checkChild.pid = 2468;
+    checkChild.stdout = new EventEmitter() as any;
+    spawnMock.mockReturnValueOnce(launchChild).mockReturnValueOnce(checkChild);
+
+    const launchPromise = launchClaudeCode({ platform: "darwin" });
+    await Promise.resolve();
+    launchChild.emit("spawn");
+    await expect(launchPromise).resolves.toBe(1357);
+
+    const statePromise = getClaudeLaunchState();
+    await Promise.resolve();
+
+    expect(spawnMock).toHaveBeenNthCalledWith(
+      2,
+      "osascript",
+      [
+        "-e",
+        'tell application "Terminal"',
+        "-e",
+        "repeat with targetWindow in windows",
+        "-e",
+        "repeat with targetTab in tabs of targetWindow",
+        "-e",
+        expect.stringContaining('if custom title of targetTab is "pclaude-claude-'),
+        "-e",
+        'return "running"',
+        "-e",
+        "end if",
+        "-e",
+        "end repeat",
+        "-e",
+        "end repeat",
+        "-e",
+        'return "stopped"',
+        "-e",
+        "end tell"
+      ],
+      {
+        env: process.env,
+        stdio: ["ignore", "pipe", "ignore"]
+      }
+    );
+
+    checkChild.emit("spawn");
+    checkChild.stdout!.emit("data", Buffer.from("running\n"));
+    checkChild.emit("close", 0);
+
+    await expect(statePromise).resolves.toBe(true);
+  });
+
+  it("keeps a macOS launch session alive during the Terminal startup grace period", async () => {
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValueOnce(1_000);
+
+    const launchChild = new MockChildProcess();
+    launchChild.pid = 1357;
+    const firstCheckChild = new MockChildProcess();
+    firstCheckChild.pid = 2468;
+    firstCheckChild.stdout = new EventEmitter();
+    const secondCheckChild = new MockChildProcess();
+    secondCheckChild.pid = 3579;
+    secondCheckChild.stdout = new EventEmitter();
+    spawnMock
+      .mockReturnValueOnce(launchChild)
+      .mockReturnValueOnce(firstCheckChild)
+      .mockReturnValueOnce(secondCheckChild);
+
+    const launchPromise = launchClaudeCode({ platform: "darwin" });
+    await Promise.resolve();
+    launchChild.emit("spawn");
+    await expect(launchPromise).resolves.toBe(1357);
+
+    nowSpy.mockReturnValueOnce(1_500);
+    const firstStatePromise = getClaudeLaunchState();
+    await Promise.resolve();
+    firstCheckChild.emit("spawn");
+    firstCheckChild.stdout?.emit("data", Buffer.from("stopped\n"));
+    firstCheckChild.emit("close", 0);
+    await expect(firstStatePromise).resolves.toBe(true);
+
+    nowSpy.mockReturnValueOnce(3_500);
+    const secondStatePromise = getClaudeLaunchState();
+    await Promise.resolve();
+    secondCheckChild.emit("spawn");
+    secondCheckChild.stdout?.emit("data", Buffer.from("running\n"));
+    secondCheckChild.emit("close", 0);
+    await expect(secondStatePromise).resolves.toBe(true);
+
+    nowSpy.mockRestore();
   });
 
   it("kills launched Windows command sessions on app shutdown", async () => {

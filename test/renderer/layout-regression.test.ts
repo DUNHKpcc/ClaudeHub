@@ -17,27 +17,32 @@ function readCssBlock(source: string, selector: string) {
 }
 
 describe("layout regression guards", () => {
-  it("uses a roomy default BrowserWindow size instead of the old cramped 820x560 shell", () => {
+  it("uses a narrower default BrowserWindow width without shrinking the usable renderer canvas", () => {
     const source = readProjectFile("src/main/index.ts");
     const width = Number(source.match(/width:\s*(\d+)/)?.[1] ?? "0");
     const height = Number(source.match(/height:\s*(\d+)/)?.[1] ?? "0");
     const minWidth = Number(source.match(/minWidth:\s*(\d+)/)?.[1] ?? "0");
     const minHeight = Number(source.match(/minHeight:\s*(\d+)/)?.[1] ?? "0");
 
-    expect(width).toBeGreaterThanOrEqual(1100);
-    expect(height).toBeGreaterThanOrEqual(760);
-    expect(minWidth).toBeGreaterThanOrEqual(980);
-    expect(minHeight).toBeGreaterThanOrEqual(680);
+    expect(width).toBe(1088);
+    expect(height).toBe(860);
+    expect(minWidth).toBe(918);
+    expect(minHeight).toBe(760);
   });
 
-  it("keeps the renderer shell fluid instead of pinning it to 820x560", () => {
+  it("keeps the renderer shell full-width so the app does not introduce side gutters", () => {
     const source = readProjectFile("src/renderer/styles.css");
     const shellBlock = readCssBlock(source, ".claudehub-shell");
+    const mobileShellOverride = source.match(
+      /@media \(max-width:\s*820px\)\s*\{[\s\S]*?\.claudehub-shell\s*\{([\s\S]*?)\}/m
+    )?.[1] ?? "";
 
     expect(shellBlock).not.toMatch(/width:\s*820px/);
     expect(shellBlock).not.toMatch(/height:\s*560px/);
     expect(shellBlock).toMatch(/width:\s*100%/);
     expect(shellBlock).toMatch(/height:\s*100%/);
+    expect(shellBlock).not.toMatch(/margin:\s*0 auto/);
+    expect(mobileShellOverride).toMatch(/width:\s*100%/);
   });
 
   it("prevents single overview sections from stretching cards to fill the full column height", () => {
@@ -62,5 +67,52 @@ describe("layout regression guards", () => {
 
     expect(railLabelBlock).toMatch(/font-family:\s*"PingFang SC"/);
     expect(railLabelBlock).toMatch(/font-weight:\s*600/);
+  });
+
+  it("keeps the token summary row unframed so only the four inner metric cards are boxed", () => {
+    const source = readProjectFile("src/renderer/styles.css");
+    const summaryBlock = readCssBlock(source, ".token-panel__summary");
+    const sharedPanelGroup = source.match(
+      /\.library-editor__list,\s*\.library-editor__form,\s*[\s\S]*?\.token-panel__table\s*\{([\s\S]*?)\}/m
+    )?.[0] ?? "";
+
+    expect(sharedPanelGroup).not.toContain(".token-panel__summary");
+    expect(summaryBlock).toMatch(/display:\s*grid/);
+    expect(summaryBlock).toMatch(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(160px,\s*1fr\)\)/);
+    expect(summaryBlock).not.toMatch(/background:/);
+    expect(summaryBlock).not.toMatch(/border:/);
+    expect(summaryBlock).not.toMatch(/border-radius:/);
+    expect(summaryBlock).not.toMatch(/padding:/);
+  });
+
+  it("keeps library discovery and record lists inside fixed-height scrolling panels", () => {
+    const source = readProjectFile("src/renderer/styles.css");
+    const editorBlock = readCssBlock(source, ".library-editor");
+    const listBlock = readCssBlock(source, ".library-editor__list");
+    const discoveriesBlock = readCssBlock(source, ".library-editor__discoveries-list");
+    const recordsBlock = readCssBlock(source, ".library-editor__records");
+    const formBlock = readCssBlock(source, ".library-editor__form");
+    const formBodyBlock = readCssBlock(source, ".library-editor__form-body");
+
+    expect(editorBlock).toMatch(/min-height:\s*clamp\(/);
+    expect(editorBlock).toMatch(/height:\s*min\(760px,\s*calc\(100vh - 220px\)\)/);
+    expect(editorBlock).toMatch(/max-height:\s*calc\(100vh - 220px\)/);
+    expect(listBlock).toMatch(/grid-template-rows:\s*auto auto minmax\(0,\s*1fr\) minmax\(0,\s*1fr\)/);
+    expect(listBlock).toMatch(/overflow:\s*hidden/);
+    expect(discoveriesBlock).toMatch(/overflow:\s*auto/);
+    expect(recordsBlock).toMatch(/overflow:\s*auto/);
+    expect(formBlock).toMatch(/grid-template-rows:\s*minmax\(0,\s*1fr\) auto/);
+    expect(formBlock).toMatch(/overflow:\s*hidden/);
+    expect(formBodyBlock).toMatch(/overflow:\s*auto/);
+  });
+
+  it("keeps discovery action buttons single-line with a consistent minimum width", () => {
+    const source = readProjectFile("src/renderer/styles.css");
+    const actionBlock = readCssBlock(source, ".discovery-record__action");
+
+    expect(actionBlock).toMatch(/width:\s*92px/);
+    expect(actionBlock).toMatch(/white-space:\s*nowrap/);
+    expect(actionBlock).toMatch(/justify-content:\s*center/);
+    expect(actionBlock).toMatch(/flex:\s*0 0 92px/);
   });
 });

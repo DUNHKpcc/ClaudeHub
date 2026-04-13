@@ -21,7 +21,9 @@ function installApi(
           { name: "node", state: "installed", version: "20.0.0", path: "/usr/bin/node" },
           { name: "npm", state: "installed", version: "10.0.0", path: "/usr/bin/npm" },
           { name: "git", state: "installed", version: "2.0.0", path: "/usr/bin/git" },
-          { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" }
+          { name: "claude", state: "installed", version: "1.0.0", path: "/usr/bin/claude" },
+          { name: "mcp_market", state: "installed", version: "已配置 1 项", path: "本地发现 1 项", message: "已检测到市场配置或本地来源。" },
+          { name: "skill_market", state: "installed", version: "已配置 1 项", path: "本地发现 1 项", message: "已检测到市场配置或本地来源。" }
         ],
         platform: "darwin",
         arch: "arm64"
@@ -159,6 +161,14 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: "活动" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Anthropic API Key")).toBeInTheDocument();
     expect(screen.getByText("环境状态")).toBeInTheDocument();
+    expect(screen.getByText("已配置")).toBeInTheDocument();
+    expect(screen.getByText("未安装")).toBeInTheDocument();
+    expect(screen.getByText("MCP 市场")).toBeInTheDocument();
+    expect(screen.getByText("Skill 市场")).toBeInTheDocument();
+    expect(within(rail).getByTestId("rail-icon-config")).toBeInTheDocument();
+    expect(within(rail).getByTestId("rail-icon-mcp")).toBeInTheDocument();
+    expect(within(rail).getByTestId("rail-icon-skill")).toBeInTheDocument();
+    expect(within(rail).getByTestId("rail-icon-token")).toBeInTheDocument();
     expect(screen.getByLabelText("Anthropic API Key").closest(".panel-card")).toHaveClass("panel-card--config");
   });
 
@@ -221,7 +231,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByLabelText("Base URL")).toHaveAttribute("placeholder", "https://api.anthropic.com");
-    expect(screen.getByLabelText("模型 ID")).toHaveAttribute("placeholder", "claude-sonnet-4-20250514");
+    expect(await screen.findByLabelText("模型 ID")).toHaveAttribute("placeholder", "claude-sonnet-4-20250514");
 
     fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
 
@@ -294,7 +304,62 @@ describe("App", () => {
     });
   });
 
+  it("re-scans discovered MCP records when the refresh button is clicked", async () => {
+    const api = window.pclaude as any;
+
+    render(<App />);
+    const rail = getRail();
+
+    fireEvent.click(within(rail).getByRole("button", { name: "MCP" }));
+
+    await screen.findByText("Claude Desktop");
+    expect(api.scanMcpRecords).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "重新扫描" }));
+
+    await waitFor(() => {
+      expect(api.scanMcpRecords).toHaveBeenCalledTimes(2);
+    });
+    expect(api.scanSkillRecords).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("已重新扫描本地来源。")).toBeInTheDocument();
+  });
+
+  it("imports discovered Skill records from the local Claude configuration", async () => {
+    installApi({
+      scanSkillRecords: vi.fn().mockResolvedValue([
+        {
+          id: "scan-skill-1",
+          name: "feature-dev",
+          description: "Build a feature safely.",
+          content: "Use the feature workflow.",
+          tags: ["command", "claude", "plugin"],
+          enabled: true,
+          sourceKey: "claude-plugin-command::feature-dev",
+          sourceLabel: "Claude Plugin Command",
+          sourcePath: "/Users/demo/.claude/plugins/marketplaces/claude-plugins-official/plugins/feature-dev/commands/feature-dev.md",
+          imported: false
+        }
+      ])
+    });
+    const api = window.pclaude as any;
+
+    render(<App />);
+    const rail = getRail();
+
+    fireEvent.click(within(rail).getByRole("button", { name: "Skill" }));
+
+    expect(await screen.findByText("Claude Plugin Command")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "导入 feature-dev" }));
+
+    await waitFor(() => {
+      expect(api.importSkillRecord).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("shows the missing-key token state by default", async () => {
+    const api = window.pclaude as any;
+
     render(<App />);
     const rail = getRail();
 
@@ -302,6 +367,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Token" })).toBeInTheDocument();
     expect(screen.getByText("需要单独配置 Anthropic Admin Key。")).toBeInTheDocument();
+    expect(api.getAnthropicUsage).toHaveBeenCalledWith({ range: "30d" });
   });
 
   it("renders real token totals when Anthropic usage data is available", async () => {

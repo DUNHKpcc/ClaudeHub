@@ -168,6 +168,47 @@ describe("library discovery service", () => {
     ]);
   });
 
+  it("discovers project MCP servers from .mcp.json", async () => {
+    const homeDir = await createTempHome();
+    const cwd = await createTempHome();
+    const configPath = path.join(cwd, ".mcp.json");
+
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            ide: {
+              command: "npx",
+              args: ["-y", "@example/ide-mcp"]
+            }
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const service = createLibraryDiscoveryService({
+      cwd,
+      homeDir,
+      platform: "darwin"
+    });
+
+    await expect(service.scanMcpRecords()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "ide",
+          command: "npx",
+          args: ["-y", "@example/ide-mcp"],
+          sourceLabel: "Project MCP",
+          sourcePath: configPath
+        })
+      ])
+    );
+  });
+
   it("discovers Claude Code memory, commands, and output styles from the standard user directory", async () => {
     const homeDir = await createTempHome();
     const claudeDir = path.join(homeDir, ".claude");
@@ -204,6 +245,151 @@ describe("library discovery service", () => {
           name: "concise",
           sourceLabel: "Claude Output Style",
           sourcePath: stylePath
+        })
+      ])
+    );
+  });
+
+  it("discovers Claude plugin commands, agents, and skills from marketplace directories", async () => {
+    const homeDir = await createTempHome();
+    const pluginRoot = path.join(
+      homeDir,
+      ".claude",
+      "plugins",
+      "marketplaces",
+      "claude-plugins-official",
+      "plugins",
+      "feature-dev"
+    );
+    const commandPath = path.join(pluginRoot, "commands", "feature-dev.md");
+    const agentPath = path.join(pluginRoot, "agents", "code-reviewer.md");
+    const skillPath = path.join(pluginRoot, "skills", "release-checklist", "SKILL.md");
+
+    await fs.mkdir(path.dirname(commandPath), { recursive: true });
+    await fs.mkdir(path.dirname(agentPath), { recursive: true });
+    await fs.mkdir(path.dirname(skillPath), { recursive: true });
+    await fs.writeFile(commandPath, "---\ndescription: Build a feature safely\n---\nUse this command.\n", "utf8");
+    await fs.writeFile(agentPath, "Review changes with a critical eye.\n", "utf8");
+    await fs.writeFile(skillPath, "---\ndescription: Release checklist\n---\nShip carefully.\n", "utf8");
+
+    const service = createLibraryDiscoveryService({
+      homeDir,
+      platform: "darwin"
+    });
+
+    const skills = await service.scanSkillRecords();
+
+    expect(skills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "feature-dev",
+          sourceLabel: "Claude Plugin Command",
+          sourcePath: commandPath
+        }),
+        expect.objectContaining({
+          name: "code-reviewer",
+          sourceLabel: "Claude Plugin Agent",
+          sourcePath: agentPath
+        }),
+        expect.objectContaining({
+          name: "release-checklist",
+          sourceLabel: "Claude Plugin Skill",
+          sourcePath: skillPath
+        })
+      ])
+    );
+  });
+
+  it("discovers plugin marketplace MCP definitions from plugin .mcp.json files", async () => {
+    const homeDir = await createTempHome();
+    const pluginConfigPath = path.join(
+      homeDir,
+      ".claude",
+      "plugins",
+      "marketplaces",
+      "official",
+      "external_plugins",
+      "playwright",
+      ".mcp.json"
+    );
+
+    await fs.mkdir(path.dirname(pluginConfigPath), { recursive: true });
+    await fs.writeFile(
+      pluginConfigPath,
+      JSON.stringify(
+        {
+          playwright: {
+            command: "npx",
+            args: ["@playwright/mcp@latest"]
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const service = createLibraryDiscoveryService({
+      homeDir,
+      platform: "darwin"
+    });
+
+    await expect(service.scanMcpRecords()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "playwright",
+          command: "npx",
+          args: ["@playwright/mcp@latest"],
+          sourceLabel: "Claude Plugin MCP",
+          sourcePath: pluginConfigPath
+        })
+      ])
+    );
+  });
+
+  it("discovers http MCP definitions from plugin .mcp.json files", async () => {
+    const homeDir = await createTempHome();
+    const pluginConfigPath = path.join(
+      homeDir,
+      ".claude",
+      "plugins",
+      "marketplaces",
+      "official",
+      "external_plugins",
+      "github",
+      ".mcp.json"
+    );
+
+    await fs.mkdir(path.dirname(pluginConfigPath), { recursive: true });
+    await fs.writeFile(
+      pluginConfigPath,
+      JSON.stringify(
+        {
+          github: {
+            type: "http",
+            url: "https://api.githubcopilot.com/mcp/"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const service = createLibraryDiscoveryService({
+      homeDir,
+      platform: "darwin"
+    });
+
+    await expect(service.scanMcpRecords()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "github",
+          command: "http",
+          args: ["https://api.githubcopilot.com/mcp/"],
+          description: "HTTP MCP endpoint",
+          sourceLabel: "Claude Plugin MCP",
+          sourcePath: pluginConfigPath
         })
       ])
     );

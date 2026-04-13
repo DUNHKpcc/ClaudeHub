@@ -11,6 +11,10 @@ export function localizeDependencyName(name: DependencyStatus["name"] | InstallP
       return "Git";
     case "claude":
       return "Claude Code";
+    case "mcp_market":
+      return "MCP 市场";
+    case "skill_market":
+      return "Skill 市场";
     default:
       return String(name);
   }

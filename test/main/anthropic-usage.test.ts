@@ -26,7 +26,7 @@ describe("anthropic usage service", () => {
     });
   });
 
-  it("aggregates local Claude usage logs without requiring an Anthropic admin key", async () => {
+  it("aggregates local Claude usage logs and estimates cost for Claude models only", async () => {
     const homeDir = path.join(os.tmpdir(), "pclaude-usage-tests", "local-home");
     const projectDir = path.join(homeDir, ".claude", "projects", "demo-project");
     await fs.mkdir(projectDir, { recursive: true });
@@ -39,6 +39,7 @@ describe("anthropic usage service", () => {
           type: "assistant",
           message: {
             id: "msg-1",
+            model: "claude-sonnet-4-20250514",
             role: "assistant",
             usage: {
               input_tokens: 120,
@@ -52,11 +53,16 @@ describe("anthropic usage service", () => {
           type: "assistant",
           message: {
             id: "msg-1",
+            model: "claude-sonnet-4-20250514",
             role: "assistant",
             usage: {
               input_tokens: 20,
               cache_read_input_tokens: 100,
               cache_creation_input_tokens: 40,
+              cache_creation: {
+                ephemeral_1h_input_tokens: 0,
+                ephemeral_5m_input_tokens: 40
+              },
               output_tokens: 30,
               server_tool_use: {
                 web_search_requests: 2
@@ -80,6 +86,80 @@ describe("anthropic usage service", () => {
               }
             }
           }
+        }),
+        JSON.stringify({
+          sessionId: "session-2",
+          timestamp: "2026-04-10T14:00:00.000Z",
+          type: "assistant",
+          message: {
+            id: "msg-2",
+            model: "qwen3.5-plus",
+            role: "assistant",
+            usage: {
+              input_tokens: 50,
+              output_tokens: 10
+            }
+          }
+        })
+      ].join("\n"),
+      "utf8"
+    );
+
+    const service = createAnthropicUsageService({
+      getAdminKey: async () => "",
+      fetchImpl: vi.fn(),
+      homeDir,
+      now: () => new Date("2026-04-11T00:00:00.000Z")
+    });
+
+    const result = await service.fetchUsage({ range: "7d" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      primarySource: "local",
+      hasCostData: true,
+      totals: {
+        totalTokens: 280,
+        inputTokens: 235,
+        outputTokens: 45,
+        totalCostUsd: 0.00069
+      }
+    });
+    expect(result.ok && result.rows[0]).toMatchObject({
+      label: "2026-04-10",
+      totalTokens: 280,
+      costUsd: 0.00069
+    });
+    expect(result.ok && result.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "local",
+          status: "active"
+        })
+      ])
+    );
+  });
+
+  it("leaves local cost unavailable when no Claude model can be priced", async () => {
+    const homeDir = path.join(os.tmpdir(), "pclaude-usage-tests", "unpriced-local-home");
+    const projectDir = path.join(homeDir, ".claude", "projects", "demo-project");
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "session-1.jsonl"),
+      [
+        JSON.stringify({
+          sessionId: "session-1",
+          timestamp: "2026-04-10T12:00:00.000Z",
+          type: "assistant",
+          message: {
+            id: "msg-1",
+            model: "qwen3.5-plus",
+            role: "assistant",
+            usage: {
+              input_tokens: 120,
+              output_tokens: 30
+            }
+          }
         })
       ].join("\n"),
       "utf8"
@@ -99,24 +179,12 @@ describe("anthropic usage service", () => {
       primarySource: "local",
       hasCostData: false,
       totals: {
-        totalTokens: 220,
-        inputTokens: 185,
-        outputTokens: 35,
+        totalTokens: 150,
+        inputTokens: 120,
+        outputTokens: 30,
         totalCostUsd: 0
       }
     });
-    expect(result.ok && result.rows[0]).toMatchObject({
-      label: "2026-04-10",
-      totalTokens: 220
-    });
-    expect(result.ok && result.sources).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "local",
-          status: "active"
-        })
-      ])
-    );
   });
 
   it("normalizes usage and cost rows from the Anthropic admin APIs", async () => {
@@ -186,6 +254,97 @@ describe("anthropic usage service", () => {
       totalTokens: 2000,
       costUsd: 1.25
     });
+  });
+
+  it("preserves hourly buckets for the 24h Anthropic admin range", async () => {
+    const homeDir = path.join(os.tmpdir(), "pclaude-usage-tests", "official-24h-home");
+    await fs.mkdir(homeDir, { recursive: true });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                starting_at: "2026-04-12T01:00:00.000Z",
+                results: [
+                  {
+                    input_tokens: 100,
+                    output_tokens: 10
+                  }
+                ]
+              },
+              {
+                starting_at: "2026-04-12T02:00:00.000Z",
+                results: [
+                  {
+                    input_tokens: 200,
+                    output_tokens: 20
+                  }
+                ]
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                starting_at: "2026-04-12T01:00:00.000Z",
+                results: [
+                  {
+                    amount_usd: 1
+                  }
+                ]
+              },
+              {
+                starting_at: "2026-04-12T02:00:00.000Z",
+                results: [
+                  {
+                    amount_usd: 2
+                  }
+                ]
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+      );
+
+    const service = createAnthropicUsageService({
+      getAdminKey: async () => "sk-ant-admin-live",
+      fetchImpl,
+      homeDir,
+      now: () => new Date("2026-04-13T00:00:00.000Z")
+    });
+
+    const result = await service.fetchUsage({ range: "24h" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      primarySource: "official",
+      totals: {
+        totalTokens: 330,
+        inputTokens: 300,
+        outputTokens: 30,
+        totalCostUsd: 3
+      }
+    });
+    expect(result.ok && result.rows).toEqual([
+      expect.objectContaining({
+        label: "2026-04-12T02:00",
+        totalTokens: 220,
+        costUsd: 2
+      }),
+      expect.objectContaining({
+        label: "2026-04-12T01:00",
+        totalTokens: 110,
+        costUsd: 1
+      })
+    ]);
   });
 
   it("maps permission failures into a stable renderer error", async () => {

@@ -16,9 +16,11 @@ describe("vite main config", () => {
           })
         : viteMainConfig;
 
-    expect(config.build?.lib && !Array.isArray(config.build.lib) ? config.build.lib.formats : []).toEqual(["cjs"]);
-    expect(config.build?.lib && !Array.isArray(config.build.lib) ? config.build.lib.fileName?.("cjs", "preload") : "").toBe(
-      "preload.js"
-    );
+    const lib = config.build?.lib && !Array.isArray(config.build.lib) ? config.build.lib : null;
+    const fileName =
+      typeof lib?.fileName === "function" ? lib.fileName("cjs", "preload") : lib?.fileName ?? "";
+
+    expect(lib?.formats ?? []).toEqual(["cjs"]);
+    expect(fileName).toBe("preload.js");
   });
 });

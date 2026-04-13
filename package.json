@@ -11,6 +11,7 @@
   },
   "scripts": {
     "dev": "vite --config vite.renderer.config.ts",
+    "dev:app": "node scripts/dev-electron.mjs",
     "dev:electron": "sh -c 'vite --config vite.main.config.ts build --watch --mode electron-main & vite --config vite.main.config.ts build --watch --mode electron-preload & wait'",
     "build": "vite --config vite.renderer.config.ts build && vite --config vite.main.config.ts build --mode electron-main && vite --config vite.main.config.ts build --mode electron-preload",
     "start": "npm run build && electron .",

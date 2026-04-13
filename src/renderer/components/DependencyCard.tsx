@@ -15,6 +15,7 @@ interface DependencyCardProps {
 export function DependencyCard({ dependency }: DependencyCardProps) {
   const icon = dependencyIcons[dependency.name];
   const badgeStyle = dependency.state === "installed" ? installedStateStyle : stateStyle;
+  const detailEntries = createDetailEntries(dependency);
 
   return (
     <article style={cardStyle}>
@@ -27,20 +28,12 @@ export function DependencyCard({ dependency }: DependencyCardProps) {
       </div>
 
       <dl data-testid="dependency-details" style={detailsStyle}>
-        <div>
-          <dt style={termStyle}>版本</dt>
-          <dd style={definitionStyle}>{dependency.version ?? "未检测到"}</dd>
-        </div>
-        <div>
-          <dt style={termStyle}>路径</dt>
-          <dd style={definitionStyle}>{dependency.path ?? "未检测到"}</dd>
-        </div>
-        {dependency.message ? (
-          <div>
-            <dt style={termStyle}>说明</dt>
-            <dd style={definitionStyle}>{localizeMessage(dependency.message)}</dd>
+        {detailEntries.map((entry) => (
+          <div key={entry.label}>
+            <dt style={termStyle}>{entry.label}</dt>
+            <dd style={definitionStyle}>{entry.value}</dd>
           </div>
-        ) : null}
+        ))}
       </dl>
     </article>
   );
@@ -50,8 +43,71 @@ const dependencyIcons: Record<DependencyStatus["name"], string> = {
   node: nodeLogo,
   npm: npmLogo,
   git: gitLogo,
-  claude: claudeLogo
+  claude: claudeLogo,
+  mcp_market: createLetterIcon("M"),
+  skill_market: createLetterIcon("S")
 };
+
+function createDetailEntries(dependency: DependencyStatus) {
+  if (dependency.name === "mcp_market") {
+    return [
+      {
+        label: "配置",
+        value: dependency.version ?? "未配置"
+      },
+      {
+        label: "位置",
+        value: dependency.path ?? "未发现"
+      },
+      {
+        label: "说明",
+        value: localizeMessage(dependency.message ?? "未检测到市场配置或本地来源。")
+      }
+    ];
+  }
+
+  if (dependency.name === "skill_market") {
+    return [
+      {
+        label: "资源",
+        value: dependency.version ?? "未检测到"
+      },
+      {
+        label: "位置",
+        value: dependency.path ?? "未发现"
+      },
+      {
+        label: "说明",
+        value: localizeMessage(dependency.message ?? "Claude Code 官方位置中未检测到配置。")
+      }
+    ];
+  }
+
+  return [
+    {
+      label: "版本",
+      value: dependency.version ?? "未检测到"
+    },
+    {
+      label: "路径",
+      value: dependency.path ?? "未检测到"
+    },
+    ...(dependency.message
+      ? [
+          {
+            label: "说明",
+            value: localizeMessage(dependency.message)
+          }
+        ]
+      : [])
+  ];
+}
+
+function createLetterIcon(letter: string) {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="#2a2a2e"/><text x="12" y="16" text-anchor="middle" font-size="12" font-family="Arial, sans-serif" font-weight="700" fill="#ce9b7a">${letter}</text></svg>`
+  )}`;
+}
 
 const cardStyle: CSSProperties = {
   border: "1px solid rgba(206, 155, 122, 0.1)",

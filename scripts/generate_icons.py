@@ -10,6 +10,7 @@ ICON_DIR = ROOT / "build" / "icons"
 MASTER_SIZE = 1024
 SOURCE_ICON = ICON_DIR / f"icon-{MASTER_SIZE}.png"
 MAC_ICONSET_SIZES = [16, 32, 64, 128, 256, 512, 1024]
+MAC_ICON_CONTENT_SCALE = 0.82
 
 
 def load_master_icon() -> Image.Image:
@@ -41,8 +42,17 @@ def save_ico(master: Image.Image) -> None:
     master.save(ICON_DIR / "icon.ico", sizes=ico_sizes)
 
 
+def create_mac_icon(master: Image.Image) -> Image.Image:
+    content_size = round(MASTER_SIZE * MAC_ICON_CONTENT_SCALE)
+    offset = (MASTER_SIZE - content_size) // 2
+    mac_icon = Image.new("RGBA", (MASTER_SIZE, MASTER_SIZE), (0, 0, 0, 0))
+    resized = master.resize((content_size, content_size), Image.Resampling.LANCZOS)
+    mac_icon.paste(resized, (offset, offset), resized)
+    return mac_icon
+
+
 def save_icns(master: Image.Image) -> None:
-    master.save(ICON_DIR / "icon.icns", format="ICNS")
+    create_mac_icon(master).save(ICON_DIR / "icon.icns", format="ICNS")
 
 
 def main() -> None:

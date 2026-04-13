@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const dependencyNameSchema = z.enum(["node", "npm", "git", "claude"]);
+export const dependencyNameSchema = z.enum(["node", "npm", "git", "claude", "mcp_market", "skill_market"]);
 
 export const dependencyStateSchema = z.enum(["installed", "missing", "outdated", "broken"]);
 

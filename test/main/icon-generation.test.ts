@@ -21,6 +21,33 @@ function readPngSize(path: string): { width: number; height: number } {
   };
 }
 
+function readAlphaPadding(path: string): { left: number; top: number; right: number; bottom: number } {
+  const output = execFileSync("python3", [
+    "-c",
+    [
+      "import json",
+      "import sys",
+      "from PIL import Image",
+      "img = Image.open(sys.argv[1]).convert('RGBA')",
+      "bbox = img.getchannel('A').getbbox()",
+      "if bbox is None:",
+      "    raise SystemExit('missing alpha bbox')",
+      "left, top, right, bottom = bbox",
+      "print(json.dumps({",
+      "    'left': left,",
+      "    'top': top,",
+      "    'right': img.width - right,",
+      "    'bottom': img.height - bottom,",
+      "}))"
+    ].join("\n"),
+    path
+  ], {
+    encoding: "utf8"
+  });
+
+  return JSON.parse(output);
+}
+
 describe("generate_icons.py", () => {
   const tempDirs: string[] = [];
 
@@ -68,5 +95,16 @@ describe("generate_icons.py", () => {
     expect(readPngSize(join(tempIconDir, "icon-16.png"))).toEqual({ width: 16, height: 16 });
     expect(statSync(join(tempIconDir, "icon.ico")).size).toBeGreaterThan(0);
     expect(statSync(join(tempIconDir, "icon.icns")).size).toBeGreaterThan(0);
+    const macPadding = readAlphaPadding(join(tempIconDir, "icon.icns"));
+    expect(macPadding).toEqual({
+      left: expect.any(Number),
+      top: expect.any(Number),
+      right: expect.any(Number),
+      bottom: expect.any(Number)
+    });
+    expect(macPadding.left).toBeGreaterThan(0);
+    expect(macPadding.top).toBeGreaterThan(0);
+    expect(macPadding.right).toBeGreaterThan(0);
+    expect(macPadding.bottom).toBeGreaterThan(0);
   });
 });

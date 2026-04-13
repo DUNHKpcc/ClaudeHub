@@ -7,9 +7,12 @@ interface LaunchClaudeCodeOptions {
 interface LaunchedSession {
   cleanup(): Promise<void>;
   isAlive(): Promise<boolean>;
+  launchedAt: number;
+  startupGraceMs?: number;
 }
 
 const launchedSessions = new Map<string, LaunchedSession>();
+const MAC_TERMINAL_STARTUP_GRACE_MS = 5_000;
 
 export async function launchClaudeCode(options: LaunchClaudeCodeOptions = {}): Promise<number> {
   const platform = options.platform ?? process.platform;
@@ -47,16 +50,31 @@ export async function cleanupLaunchedClaudeCode(options: LaunchClaudeCodeOptions
 
 export async function getClaudeLaunchState(): Promise<boolean> {
   const sessions = [...launchedSessions.entries()];
+  const now = Date.now();
+  let hasActiveSession = false;
 
   for (const [id, session] of sessions) {
     const alive = await session.isAlive();
 
-    if (!alive) {
+    if (alive) {
+      hasActiveSession = true;
+      continue;
+    }
+
+    const withinStartupGrace =
+      typeof session.startupGraceMs === "number" && now - session.launchedAt < session.startupGraceMs;
+
+    if (withinStartupGrace) {
+      hasActiveSession = true;
+      continue;
+    }
+
+    if (!withinStartupGrace) {
       launchedSessions.delete(id);
     }
   }
 
-  return launchedSessions.size > 0;
+  return hasActiveSession;
 }
 
 export function resetClaudeLaunchStateForTests(): void {
@@ -65,18 +83,16 @@ export function resetClaudeLaunchStateForTests(): void {
 
 async function launchInMacTerminal() {
   const sessionId = createSessionId();
-  const child = spawn(
-    "osascript",
+  const child = runOsaScript(
     [
-      "-e",
-      `tell application "Terminal"
-launch
-set targetTab to do script ""
-delay 1
-do script "${escapeAppleScriptString(buildMacLaunchCommand())}" in targetTab
-set custom title of targetTab to "${sessionId}"
-activate
-end tell`
+      'tell application "Terminal"',
+      "launch",
+      'set targetTab to do script ""',
+      "delay 1",
+      `do script "${escapeAppleScriptString(buildMacLaunchCommand())}" in targetTab`,
+      `set custom title of targetTab to "${sessionId}"`,
+      "activate",
+      "end tell"
     ],
     {
       env: buildLaunchEnv(),
@@ -87,7 +103,9 @@ end tell`
   const pid = await waitForSpawn(child);
   const session = {
     cleanup: () => closeMacTerminalSession(sessionId),
-    isAlive: () => checkMacTerminalSessionExists(sessionId)
+    isAlive: () => checkMacTerminalSessionExists(sessionId),
+    launchedAt: Date.now(),
+    startupGraceMs: MAC_TERMINAL_STARTUP_GRACE_MS
   } satisfies LaunchedSession;
 
   launchedSessions.set(sessionId, {
@@ -114,7 +132,8 @@ async function launchInWindowsConsole() {
 
   launchedSessions.set(sessionId, {
     cleanup: () => terminateWindowsProcessTree(pid),
-    isAlive: async () => isProcessAlive(pid)
+    isAlive: async () => isProcessAlive(pid),
+    launchedAt: Date.now()
   });
 
   return pid;
@@ -142,27 +161,26 @@ async function launchDirectly() {
         }
       }
     },
-    isAlive: async () => isProcessAlive(pid)
+    isAlive: async () => isProcessAlive(pid),
+    launchedAt: Date.now()
   });
 
   return pid;
 }
 
 async function closeMacTerminalSession(sessionId: string) {
-  const child = spawn(
-    "osascript",
+  const child = runOsaScript(
     [
-      "-e",
-      `tell application "Terminal"
-repeat with targetWindow in windows
-repeat with targetTab in tabs of targetWindow
-if custom title of targetTab is "${sessionId}" then
-close targetWindow saving no
-return
-end if
-end repeat
-end repeat
-end tell`
+      'tell application "Terminal"',
+      "repeat with targetWindow in windows",
+      "repeat with targetTab in tabs of targetWindow",
+      `if custom title of targetTab is "${sessionId}" then`,
+      "close targetTab saving no",
+      "return",
+      "end if",
+      "end repeat",
+      "end repeat",
+      "end tell"
     ],
     {
       env: process.env,
@@ -174,20 +192,18 @@ end tell`
 }
 
 async function checkMacTerminalSessionExists(sessionId: string) {
-  const child = spawn(
-    "osascript",
+  const child = runOsaScript(
     [
-      "-e",
-      `tell application "Terminal"
-repeat with targetWindow in windows
-repeat with targetTab in tabs of targetWindow
-if custom title of targetTab is "${sessionId}" then
-return "running"
-end if
-end repeat
-end repeat
-return "stopped"
-end tell`
+      'tell application "Terminal"',
+      "repeat with targetWindow in windows",
+      "repeat with targetTab in tabs of targetWindow",
+      `if custom title of targetTab is "${sessionId}" then`,
+      'return "running"',
+      "end if",
+      "end repeat",
+      "end repeat",
+      'return "stopped"',
+      "end tell"
     ],
     {
       env: process.env,
@@ -268,6 +284,14 @@ async function waitForOutput(child: ReturnType<typeof spawn>): Promise<string> {
 
 function createSessionId() {
   return `pclaude-claude-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function runOsaScript(lines: string[], options: Parameters<typeof spawn>[2]) {
+  return spawn(
+    "osascript",
+    lines.flatMap((line) => ["-e", line]),
+    options
+  );
 }
 
 function isProcessAlive(pid: number) {

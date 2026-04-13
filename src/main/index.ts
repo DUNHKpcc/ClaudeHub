@@ -1,5 +1,4 @@
 import { BrowserWindow, app, ipcMain } from "electron";
-import path from "node:path";
 
 import { detectEnvironment } from "./services/environment";
 import { readConfig, readConfigPlaceholders, saveConfig } from "./services/config";
@@ -16,20 +15,28 @@ import type {
   McpRecord,
   SkillRecord
 } from "../shared/contracts";
+import { getPreloadPath, resolveRendererEntry } from "./windowEntry";
 
 async function createWindow() {
+  const appPath = app.getAppPath();
+  const rendererEntry = resolveRendererEntry(appPath);
   const window = new BrowserWindow({
-    width: 1240,
+    width: 1088,
     height: 860,
-    minWidth: 1080,
+    minWidth: 918,
     minHeight: 760,
     backgroundColor: "#1f1f21",
     webPreferences: {
-      preload: path.join(app.getAppPath(), "dist-electron/main/preload.js")
+      preload: getPreloadPath(appPath)
     }
   });
 
-  await window.loadFile(path.join(app.getAppPath(), "dist-renderer/index.html"));
+  if (rendererEntry.type === "url") {
+    await window.loadURL(rendererEntry.target);
+    return;
+  }
+
+  await window.loadFile(rendererEntry.target);
 }
 
 function registerIpcHandlers() {

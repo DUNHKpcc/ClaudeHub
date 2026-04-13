@@ -20,6 +20,54 @@ interface UsageApiResponse {
   }>;
 }
 
+interface ModelPricing {
+  input: number;
+  cacheWrite5m: number;
+  cacheWrite1h: number;
+  cacheRead: number;
+  output: number;
+}
+
+interface UsageRowSummary {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+const TOKENS_PER_MILLION = 1_000_000;
+
+// Anthropic official pricing reference, checked against docs on 2026-04-12.
+const MODEL_PRICING: Record<"opus" | "sonnet" | "haiku35" | "haiku3", ModelPricing> = {
+  opus: {
+    input: 15,
+    cacheWrite5m: 18.75,
+    cacheWrite1h: 30,
+    cacheRead: 1.5,
+    output: 75
+  },
+  sonnet: {
+    input: 3,
+    cacheWrite5m: 3.75,
+    cacheWrite1h: 6,
+    cacheRead: 0.3,
+    output: 15
+  },
+  haiku35: {
+    input: 0.8,
+    cacheWrite5m: 1,
+    cacheWrite1h: 1.6,
+    cacheRead: 0.08,
+    output: 4
+  },
+  haiku3: {
+    input: 0.25,
+    cacheWrite5m: 0.3,
+    cacheWrite1h: 0.5,
+    cacheRead: 0.03,
+    output: 1.25
+  }
+};
+
 export function createAnthropicUsageService({
   getAdminKey,
   fetchImpl = fetch,
@@ -32,17 +80,21 @@ export function createAnthropicUsageService({
       const adminKey = (await getAdminKey()).trim();
 
       if (localUsage) {
+        const hasEstimatedCost = localUsage.totals.totalCostUsd > 0;
+
         return {
           ok: true,
           range,
           refreshedAt: now().toISOString(),
           primarySource: "local",
-          hasCostData: false,
+          hasCostData: hasEstimatedCost,
           sources: [
             {
               kind: "local",
               status: "active",
-              detail: "当前展示来自本地 Claude 日志，可覆盖官方、代理和第三方 API 的实际使用。"
+              detail: hasEstimatedCost
+                ? "当前展示来自本地 Claude 日志；Cost 按 Claude 模型与 Anthropic 官方单价估算，非 Claude 模型未计价。"
+                : "当前展示来自本地 Claude 日志；已统计 Token，但当前范围内没有可按 Anthropic 官方单价估算的 Claude 模型成本。"
             },
             adminKey
               ? {
@@ -60,7 +112,7 @@ export function createAnthropicUsageService({
             totalTokens: localUsage.totals.totalTokens,
             inputTokens: localUsage.totals.inputTokens,
             outputTokens: localUsage.totals.outputTokens,
-            totalCostUsd: 0
+            totalCostUsd: localUsage.totals.totalCostUsd
           },
           rows: localUsage.rows
         };
@@ -115,7 +167,7 @@ export function createAnthropicUsageService({
 
         const usageJson = (await usageResponse.json()) as UsageApiResponse;
         const costJson = (await costResponse.json()) as UsageApiResponse;
-        const rows = mergeRows(usageJson, costJson);
+        const rows = mergeRows(usageJson, costJson, bucketWidth);
         const totals = rows.reduce(
           (summary, row) => ({
             totalTokens: summary.totalTokens + row.totalTokens,
@@ -228,11 +280,11 @@ function buildRange(range: TokenUsageRange, current: Date) {
   };
 }
 
-function mergeRows(usageJson: UsageApiResponse, costJson: UsageApiResponse): TokenUsageRow[] {
-  const usageMap = new Map<string, Omit<TokenUsageRow, "costUsd">>();
+function mergeRows(usageJson: UsageApiResponse, costJson: UsageApiResponse, bucketWidth: string): TokenUsageRow[] {
+  const usageMap = new Map<string, UsageRowSummary>();
   for (const bucket of usageJson.data ?? []) {
-    const label = bucket.starting_at?.slice(0, 10) ?? "Unknown";
-    const row = (bucket.results ?? []).reduce(
+    const label = buildBucketLabel(bucket.starting_at, bucketWidth);
+    const row = (bucket.results ?? []).reduce<UsageRowSummary>(
       (summary, result) => {
         const inputTokens =
           readNumber(result.input_tokens) +
@@ -249,16 +301,21 @@ function mergeRows(usageJson: UsageApiResponse, costJson: UsageApiResponse): Tok
       },
       { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
     );
-    usageMap.set(label, row);
+    const current = usageMap.get(label) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    usageMap.set(label, {
+      inputTokens: current.inputTokens + row.inputTokens,
+      outputTokens: current.outputTokens + row.outputTokens,
+      totalTokens: current.totalTokens + row.totalTokens
+    });
   }
 
   const costMap = new Map<string, number>();
   for (const bucket of costJson.data ?? []) {
-    const label = bucket.starting_at?.slice(0, 10) ?? "Unknown";
+    const label = buildBucketLabel(bucket.starting_at, bucketWidth);
     const amount = (bucket.results ?? []).reduce((summary, result) => {
       return summary + readNumber(result.amount_usd) + readNumber(result.cost_usd) + readAmount(result.amount);
     }, 0);
-    costMap.set(label, roundUsd(amount));
+    costMap.set(label, roundUsd((costMap.get(label) ?? 0) + amount));
   }
 
   return Array.from(new Set([...usageMap.keys(), ...costMap.keys()]))
@@ -307,7 +364,7 @@ function readNumber(value: unknown): number {
 }
 
 function roundUsd(value: number) {
-  return Math.round(value * 100) / 100;
+  return Math.round(value * 1_000_000) / 1_000_000;
 }
 
 function mapResponseError(status: number): AnthropicUsageResult {
@@ -408,9 +465,14 @@ async function readLocalUsage({
   for (const entry of usageEntries.values()) {
     const current = rowsByLabel.get(entry.label) ?? emptyLocalTotals();
     rowsByLabel.set(entry.label, {
+      baseInputTokens: current.baseInputTokens + entry.baseInputTokens,
+      cacheReadInputTokens: current.cacheReadInputTokens + entry.cacheReadInputTokens,
+      cacheCreation5mInputTokens: current.cacheCreation5mInputTokens + entry.cacheCreation5mInputTokens,
+      cacheCreation1hInputTokens: current.cacheCreation1hInputTokens + entry.cacheCreation1hInputTokens,
       inputTokens: current.inputTokens + entry.inputTokens,
       outputTokens: current.outputTokens + entry.outputTokens,
       totalTokens: current.totalTokens + entry.totalTokens,
+      costUsd: roundUsd(current.costUsd + entry.costUsd),
       webSearchRequests: current.webSearchRequests + entry.webSearchRequests
     });
   }
@@ -422,19 +484,21 @@ async function readLocalUsage({
       inputTokens: totals.inputTokens,
       outputTokens: totals.outputTokens,
       totalTokens: totals.totalTokens,
-      costUsd: 0
+      costUsd: totals.costUsd
     }));
 
   const totals = rows.reduce(
     (summary, row) => ({
       inputTokens: summary.inputTokens + row.inputTokens,
       outputTokens: summary.outputTokens + row.outputTokens,
-      totalTokens: summary.totalTokens + row.totalTokens
+      totalTokens: summary.totalTokens + row.totalTokens,
+      totalCostUsd: roundUsd(summary.totalCostUsd + row.costUsd)
     }),
     {
       inputTokens: 0,
       outputTokens: 0,
-      totalTokens: 0
+      totalTokens: 0,
+      totalCostUsd: 0
     }
   );
 
@@ -447,9 +511,14 @@ interface LocalUsageEntry extends LocalUsageTotals {
 }
 
 interface LocalUsageTotals {
+  baseInputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreation5mInputTokens: number;
+  cacheCreation1hInputTokens: number;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  costUsd: number;
   webSearchRequests: number;
 }
 
@@ -467,11 +536,12 @@ function readAssistantUsageEntry(parsed: Record<string, unknown>, bucketWidth: s
   const sessionId = readOptionalString(parsed.sessionId) ?? "unknown-session";
   const messageId = readOptionalString(message.id) ?? readOptionalString(parsed.uuid) ?? "unknown-message";
   const timestamp = readOptionalString(parsed.timestamp);
+  const model = readOptionalString(message.model);
   if (!timestamp) {
     return null;
   }
 
-  return buildLocalUsageEntry(`assistant:${sessionId}:${messageId}`, usage, timestamp, bucketWidth);
+  return buildLocalUsageEntry(`assistant:${sessionId}:${messageId}`, usage, timestamp, bucketWidth, model);
 }
 
 function readToolResultUsageEntry(parsed: Record<string, unknown>, bucketWidth: string): LocalUsageEntry | null {
@@ -482,6 +552,7 @@ function readToolResultUsageEntry(parsed: Record<string, unknown>, bucketWidth: 
 
   const usage = isRecord(toolUseResult.usage) ? toolUseResult.usage : null;
   const timestamp = readOptionalString(parsed.timestamp);
+  const model = readOptionalString(toolUseResult.model) ?? readOptionalString(parsed.model);
   if (!usage || !timestamp) {
     return null;
   }
@@ -489,24 +560,49 @@ function readToolResultUsageEntry(parsed: Record<string, unknown>, bucketWidth: 
   const sessionId = readOptionalString(parsed.sessionId) ?? "unknown-session";
   const agentId = readOptionalString(toolUseResult.agentId) ?? readOptionalString(parsed.uuid) ?? "unknown-tool";
 
-  return buildLocalUsageEntry(`tool:${sessionId}:${agentId}`, usage, timestamp, bucketWidth);
+  return buildLocalUsageEntry(`tool:${sessionId}:${agentId}`, usage, timestamp, bucketWidth, model);
 }
 
-function buildLocalUsageEntry(key: string, usage: Record<string, unknown>, timestamp: string, bucketWidth: string) {
-  const inputTokens =
-    readNumber(usage.input_tokens) +
-    readNumber(usage.cache_read_input_tokens) +
-    readNumber(usage.cache_creation_input_tokens);
+function buildLocalUsageEntry(
+  key: string,
+  usage: Record<string, unknown>,
+  timestamp: string,
+  bucketWidth: string,
+  model: string | null
+) {
+  const baseInputTokens = readNumber(usage.input_tokens);
+  const cacheReadInputTokens = readNumber(usage.cache_read_input_tokens);
+  const cacheCreationInputTokens = readNumber(usage.cache_creation_input_tokens);
+  const cacheCreation = isRecord(usage.cache_creation) ? usage.cache_creation : null;
+  const cacheCreation1hInputTokens = Math.min(
+    cacheCreationInputTokens,
+    readNumber(cacheCreation?.ephemeral_1h_input_tokens)
+  );
+  const cacheCreation5mInputTokens = Math.max(0, cacheCreationInputTokens - cacheCreation1hInputTokens);
+  const inputTokens = baseInputTokens + cacheReadInputTokens + cacheCreationInputTokens;
   const outputTokens = readNumber(usage.output_tokens);
   const totalTokens = inputTokens + outputTokens;
   const webSearchRequests = isRecord(usage.server_tool_use) ? readNumber(usage.server_tool_use.web_search_requests) : 0;
+  const costUsd = estimateUsageCostUsd({
+    model,
+    baseInputTokens,
+    cacheReadInputTokens,
+    cacheCreation5mInputTokens,
+    cacheCreation1hInputTokens,
+    outputTokens
+  });
 
   return {
     key,
     label: buildBucketLabel(timestamp, bucketWidth),
+    baseInputTokens,
+    cacheReadInputTokens,
+    cacheCreation5mInputTokens,
+    cacheCreation1hInputTokens,
     inputTokens,
     outputTokens,
     totalTokens,
+    costUsd,
     webSearchRequests
   };
 }
@@ -519,7 +615,11 @@ function upsertLocalUsageEntry(entries: Map<string, LocalUsageEntry>, next: Loca
   }
 }
 
-function buildBucketLabel(timestamp: string, bucketWidth: string) {
+function buildBucketLabel(timestamp: string | undefined, bucketWidth: string) {
+  if (!timestamp) {
+    return "Unknown";
+  }
+
   const date = new Date(timestamp);
   if (bucketWidth === "1h") {
     return `${timestamp.slice(0, 13)}:00`;
@@ -585,11 +685,70 @@ function isRecord(value: unknown): value is Record<string, any> {
 
 function emptyLocalTotals(): LocalUsageTotals {
   return {
+    baseInputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheCreation5mInputTokens: 0,
+    cacheCreation1hInputTokens: 0,
     inputTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
+    costUsd: 0,
     webSearchRequests: 0
   };
+}
+
+function estimateUsageCostUsd({
+  model,
+  baseInputTokens,
+  cacheReadInputTokens,
+  cacheCreation5mInputTokens,
+  cacheCreation1hInputTokens,
+  outputTokens
+}: {
+  model: string | null;
+  baseInputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreation5mInputTokens: number;
+  cacheCreation1hInputTokens: number;
+  outputTokens: number;
+}) {
+  const pricing = resolveModelPricing(model);
+  if (!pricing) {
+    return 0;
+  }
+
+  return roundUsd(
+    (baseInputTokens / TOKENS_PER_MILLION) * pricing.input +
+      (cacheReadInputTokens / TOKENS_PER_MILLION) * pricing.cacheRead +
+      (cacheCreation5mInputTokens / TOKENS_PER_MILLION) * pricing.cacheWrite5m +
+      (cacheCreation1hInputTokens / TOKENS_PER_MILLION) * pricing.cacheWrite1h +
+      (outputTokens / TOKENS_PER_MILLION) * pricing.output
+  );
+}
+
+function resolveModelPricing(model: string | null): ModelPricing | null {
+  const normalized = model?.trim().toLowerCase();
+  if (!normalized || !normalized.startsWith("claude-")) {
+    return null;
+  }
+
+  if (normalized.includes("opus")) {
+    return MODEL_PRICING.opus;
+  }
+
+  if (normalized.includes("sonnet")) {
+    return MODEL_PRICING.sonnet;
+  }
+
+  if (normalized.includes("haiku-3-5") || normalized.includes("haiku-3.5")) {
+    return MODEL_PRICING.haiku35;
+  }
+
+  if (normalized.includes("haiku")) {
+    return MODEL_PRICING.haiku3;
+  }
+
+  return null;
 }
 
 function buildOfficialErrorSources(detail: string): TokenUsageSource[] {
