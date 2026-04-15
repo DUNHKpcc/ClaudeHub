@@ -97,15 +97,20 @@ export function createLibraryDiscoveryService(options: LibraryDiscoveryOptions =
     },
     async scanSkillRecords() {
       const claudeDir = path.join(homeDir, ".claude");
+      const projectClaudeDir = path.join(cwd, ".claude");
       const memoryPath = path.join(claudeDir, "CLAUDE.md");
       const commandsDir = path.join(claudeDir, "commands");
+      const projectCommandsDir = path.join(projectClaudeDir, "commands");
       const outputStylesDir = path.join(claudeDir, "output-styles");
+      const projectSkillsDir = path.join(projectClaudeDir, "skills");
       const pluginRoots = [path.join(claudeDir, "plugins", "marketplaces"), path.join(claudeDir, "plugins", "cache")];
 
-      const [memoryContent, commandFiles, styleFiles, pluginEntries] = await Promise.all([
+      const [memoryContent, commandFiles, projectCommandFiles, styleFiles, projectSkillFiles, pluginEntries] = await Promise.all([
         readOptionalFile(memoryPath),
         listMarkdownFiles(commandsDir),
+        listMarkdownFiles(projectCommandsDir),
         listMarkdownFiles(outputStylesDir),
+        listSkillEntryFiles(projectSkillsDir),
         listClaudePluginSkillEntries(pluginRoots)
       ]);
 
@@ -146,6 +151,26 @@ export function createLibraryDiscoveryService(options: LibraryDiscoveryOptions =
         });
       }
 
+      for (const filePath of projectCommandFiles) {
+        const content = await readOptionalFile(filePath);
+        if (!content) {
+          continue;
+        }
+
+        discovered.push({
+          id: `scan-skill:project-command:${filePath}`,
+          name: path.basename(filePath, path.extname(filePath)),
+          description: extractDescription(content) || "项目级 Claude 自定义命令",
+          content: content.trim(),
+          tags: ["command", "claude", "project"],
+          enabled: true,
+          sourceKey: `project-command:${filePath}`,
+          sourceLabel: "Project Command",
+          sourcePath: filePath,
+          imported: false
+        });
+      }
+
       for (const filePath of styleFiles) {
         const content = await readOptionalFile(filePath);
         if (!content) {
@@ -161,6 +186,26 @@ export function createLibraryDiscoveryService(options: LibraryDiscoveryOptions =
           enabled: true,
           sourceKey: `claude-output-style:${filePath}`,
           sourceLabel: "Claude Output Style",
+          sourcePath: filePath,
+          imported: false
+        });
+      }
+
+      for (const filePath of projectSkillFiles) {
+        const content = await readOptionalFile(filePath);
+        if (!content) {
+          continue;
+        }
+
+        discovered.push({
+          id: `scan-skill:project-skill:${filePath}`,
+          name: path.basename(path.dirname(filePath)),
+          description: extractDescription(content) || "项目级 Claude Skill",
+          content: content.trim(),
+          tags: ["skill", "claude", "project"],
+          enabled: true,
+          sourceKey: `project-skill:${filePath}`,
+          sourceLabel: "Project Skill",
           sourcePath: filePath,
           imported: false
         });

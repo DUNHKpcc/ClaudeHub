@@ -196,7 +196,7 @@ export function LibraryEditor({
               <p className="empty-copy">
                 {kind === "mcp"
                   ? "未发现可导入的本地来源。当前支持扫描项目级 .mcp.json、.claude/.mcp.json、插件市场 ~/.claude/plugins/marketplaces 下的 .mcp.json，以及 Claude 配置中的 mcpServers。IDE 会话级 MCP 不在此列表。"
-                  : "未发现可导入的本地来源。当前支持扫描 ~/.claude 下的 CLAUDE.md、commands、output-styles，以及 Claude 插件中的 commands、agents、skills。"}
+                  : "未发现可导入的本地来源。当前支持扫描 ~/.claude 下的 CLAUDE.md、commands、output-styles，项目级 .claude/commands、.claude/skills，以及 Claude 插件中的 commands、agents、skills。"}
               </p>
             ) : (
               discoveries.map((record) => (

@@ -27,6 +27,11 @@ interface EnvironmentDetectionOptions {
   platform?: NodeJS.Platform;
 }
 
+interface BinaryDetectionOptions {
+  platform?: NodeJS.Platform;
+  shellPath?: string;
+}
+
 function parseVersion(output: string): string | null {
   const match = output.match(/(\d+\.\d+\.\d+)/);
   return match?.[1] ?? null;
@@ -53,8 +58,13 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-async function locateBinary(command: string): Promise<string | undefined> {
-  const locator = os.platform() === "win32" ? "where" : "which";
+const SHELL_PATH_SENTINEL = "__PCLAUDE_PATH__";
+
+async function locateBinaryOnCurrentPath(
+  command: string,
+  platform: NodeJS.Platform
+): Promise<string | undefined> {
+  const locator = platform === "win32" ? "where" : "which";
 
   try {
     const { stdout } = await execFile(locator, [command]);
@@ -65,6 +75,66 @@ async function locateBinary(command: string): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+async function locateBinaryInLoginShell(
+  command: string,
+  options: BinaryDetectionOptions
+): Promise<string | undefined> {
+  const platform = options.platform ?? os.platform();
+
+  if (platform === "win32") {
+    return undefined;
+  }
+
+  const shellPath = options.shellPath ?? resolveLoginShell(platform);
+
+  try {
+    const { stdout } = await execFile(shellPath, [
+      "-ilc",
+      `binary_path="$(command -v -- ${quoteForShell(command)})" || exit 127; printf '${SHELL_PATH_SENTINEL}%s\\n' "$binary_path"`
+    ]);
+    return parseShellResolvedPath(stdout);
+  } catch {
+    return undefined;
+  }
+}
+
+async function inspectBinaryInLoginShell(
+  binaryPath: string,
+  versionArgs: string[],
+  options: BinaryDetectionOptions
+): Promise<{ stdout: string; stderr: string }> {
+  const platform = options.platform ?? os.platform();
+  const shellPath = options.shellPath ?? resolveLoginShell(platform);
+  const command = [quoteForShell(binaryPath), ...versionArgs.map((arg) => quoteForShell(arg))].join(" ");
+  const { stdout, stderr } = await execFile(shellPath, ["-ilc", command]);
+
+  return { stdout, stderr };
+}
+
+function parseShellResolvedPath(stdout: string): string | undefined {
+  return stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find((line) => line.startsWith(SHELL_PATH_SENTINEL))
+    ?.slice(SHELL_PATH_SENTINEL.length);
+}
+
+function quoteForShell(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function resolveLoginShell(platform: NodeJS.Platform): string {
+  if (typeof process.env.SHELL === "string" && process.env.SHELL.trim()) {
+    return process.env.SHELL;
+  }
+
+  if (platform === "darwin") {
+    return "/bin/zsh";
+  }
+
+  return "/bin/bash";
 }
 
 export function normalizeDependencyState(
@@ -81,13 +151,17 @@ export function normalizeDependencyState(
 export async function detectBinary(
   name: DependencyStatus["name"],
   command: string,
-  versionArgs: string[]
+  versionArgs: string[],
+  options: BinaryDetectionOptions = {}
 ): Promise<DependencyStatus> {
   if (!coreDependencyNames.has(name)) {
     throw new Error(`detectBinary only supports core dependencies. Received ${name}.`);
   }
 
-  const binaryPath = await locateBinary(command);
+  const platform = options.platform ?? os.platform();
+  const directBinaryPath = await locateBinaryOnCurrentPath(command, platform);
+  const shellBinaryPath = directBinaryPath ? undefined : await locateBinaryInLoginShell(command, options);
+  const binaryPath = directBinaryPath ?? shellBinaryPath;
 
   if (!binaryPath) {
     return {
@@ -98,7 +172,10 @@ export async function detectBinary(
   }
 
   try {
-    const { stdout, stderr } = await execFile(command, versionArgs);
+    const { stdout, stderr } =
+      shellBinaryPath !== undefined && platform !== "win32"
+        ? await inspectBinaryInLoginShell(binaryPath, versionArgs, options)
+        : await execFile(binaryPath, versionArgs);
     const version = parseVersion(`${stdout}\n${stderr}`);
     const minimumVersion = minimumVersions[name];
     const state = normalizeDependencyState(version, minimumVersion);
@@ -518,10 +595,10 @@ async function detectMarketplaceDependencies(options: EnvironmentDetectionOption
 export async function detectEnvironment(options: EnvironmentDetectionOptions = {}): Promise<DetectEnvironmentResult> {
   const detectBinaryFn = options.detectBinaryFn ?? detectBinary;
   const dependencies = await Promise.all([
-    detectBinaryFn("node", "node", ["--version"]),
-    detectBinaryFn("npm", "npm", ["--version"]),
-    detectBinaryFn("git", "git", ["--version"]),
-    detectBinaryFn("claude", "claude", ["--version"])
+    detectBinaryFn("node", "node", ["--version"], { platform: options.platform }),
+    detectBinaryFn("npm", "npm", ["--version"], { platform: options.platform }),
+    detectBinaryFn("git", "git", ["--version"], { platform: options.platform }),
+    detectBinaryFn("claude", "claude", ["--version"], { platform: options.platform })
   ]);
   const marketplaceDependencies = await detectMarketplaceDependencies(options);
 

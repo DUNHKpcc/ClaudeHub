@@ -172,6 +172,34 @@ describe("App", () => {
     expect(screen.getByLabelText("Anthropic API Key").closest(".panel-card")).toHaveClass("panel-card--config");
   });
 
+  it("renders the current status card as a full-row metric block", async () => {
+    render(<App />);
+
+    const metricGrid = document.querySelector(".metric-grid--config");
+    const statusCard = (await screen.findByText("当前状态")).closest(".metric-card");
+
+    expect(metricGrid).not.toBeNull();
+    expect(statusCard).not.toBeNull();
+    expect(statusCard).toHaveClass("metric-card--full-row");
+  });
+
+  it("shows status details and a launch action inside the current status card", async () => {
+    render(<App />);
+
+    expect(await screen.findByText("最近检测")).toBeInTheDocument();
+    expect(screen.getByText("Claude 状态")).toBeInTheDocument();
+    expect(screen.getByAltText("Claude logo")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "立即启动" })).toBeInTheDocument();
+  });
+
+  it("does not render the next-steps panel in the config page", async () => {
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "配置" });
+
+    expect(screen.queryByRole("heading", { name: "下一步" })).not.toBeInTheDocument();
+  });
+
   it("switches to the MCP page and shows the shared shell with empty-state summary", async () => {
     render(<App />);
     const rail = getRail();

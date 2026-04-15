@@ -212,6 +212,7 @@ button {
 .section-body {
   min-height: 0;
   overflow: auto;
+  scrollbar-width: none;
   display: grid;
   gap: 14px;
   align-content: start;
@@ -220,11 +221,20 @@ button {
   padding-right: 4px;
 }
 
+.section-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 .metric-grid {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   align-items: start;
+}
+
+.metric-grid--config {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .metric-card {
@@ -238,6 +248,10 @@ button {
 
 .metric-card.is-wide {
   grid-column: span 2;
+}
+
+.metric-card--full-row {
+  grid-column: 1 / -1;
 }
 
 .metric-card--running {
@@ -260,6 +274,66 @@ button {
   word-break: break-word;
 }
 
+.metric-card__split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+
+.metric-card__primary {
+  display: grid;
+  gap: 8px;
+}
+
+.metric-card__aside {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  flex-wrap: nowrap;
+}
+
+.metric-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.metric-card__meta-label {
+  font-size: 10px;
+  color: #8f9199;
+  text-transform: uppercase;
+}
+
+.metric-card__meta-value {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  line-height: 1;
+  color: #f7f2ee;
+  font-weight: 600;
+}
+
+.metric-card__meta-value--with-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-card__meta-logo {
+  display: block;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.metric-card__action {
+  min-width: 104px;
+}
+
 .metric-card--running .metric-card__label {
   color: #9fe0b5;
 }
@@ -268,11 +342,43 @@ button {
   color: #dff9e8;
 }
 
+.metric-card--running .metric-card__meta-label {
+  color: #9fe0b5;
+}
+
+.metric-card--running .metric-card__meta-value {
+  color: #dff9e8;
+}
+
 .dependency-grid {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   align-items: start;
+}
+
+@media (max-width: 820px) {
+  .metric-grid--config {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-card__split {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-card__aside {
+    display: grid;
+    justify-content: start;
+    justify-items: start;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .metric-card__meta {
+    display: grid;
+    gap: 2px;
+    white-space: normal;
+  }
 }
 
 .panel-card {

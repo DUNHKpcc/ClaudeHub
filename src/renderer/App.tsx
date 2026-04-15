@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import claudeLogo from "../../AI/Claude.png";
 
 import type {
   ActivityEntry,
@@ -63,6 +64,7 @@ export function App() {
   const [installInProgress, setInstallInProgress] = useState(false);
   const [installProgress, setInstallProgress] = useState<InstallProgressEntry[]>([]);
   const [lastInstallResult, setLastInstallResult] = useState<InstallResult | null>(null);
+  const [lastEnvironmentCheckAt, setLastEnvironmentCheckAt] = useState<number | null>(null);
   const [status, setStatus] = useState("正在检测本机环境…");
   const [mcpRecords, setMcpRecords] = useState<McpRecord[]>([]);
   const [skillRecords, setSkillRecords] = useState<SkillRecord[]>([]);
@@ -157,6 +159,7 @@ export function App() {
       }
 
       setEnvironment(result);
+      setLastEnvironmentCheckAt(Date.now());
       setStatus(isEnvironmentReady(result) ? "环境已就绪" : "环境未就绪");
     } catch {
       if (!isCancelled?.()) {
@@ -385,6 +388,8 @@ export function App() {
     return { total, ready };
   }, [environment]);
   const currentStatusTone = resolveStatusTone(status);
+  const launchAvailable = Boolean((window.pclaude as RendererApi | undefined)?.launchClaudeCode);
+  const launchEnabled = environment !== null && isEnvironmentReady(environment) && !installInProgress;
 
   return (
     <main className="claudehub-shell">
@@ -425,7 +430,7 @@ export function App() {
         <div className="section-body">
           {activeSection === "config" ? (
             <>
-              <div className="metric-grid">
+              <div className="metric-grid metric-grid--config">
                 <MetricCard label="环境状态" value={environment ? `${configSummary.ready}/${configSummary.total}` : "--"} />
                 <MetricCard
                   label="配置状态"
@@ -435,7 +440,16 @@ export function App() {
                   label="最近安装"
                   value={lastInstallResult ? (lastInstallResult.ok ? "成功" : "需重试") : "未安装"}
                 />
-                <MetricCard label="当前状态" value={status} long tone={currentStatusTone} />
+                <StatusMetricCard
+                  label="当前状态"
+                  value={status}
+                  tone={currentStatusTone}
+                  lastCheckedAt={lastEnvironmentCheckAt}
+                  launchAvailable={launchAvailable}
+                  launchEnabled={launchEnabled}
+                  launchLabel={resolveLaunchSummary(status, environment, installInProgress, launchAvailable)}
+                  onLaunch={handleLaunch}
+                />
               </div>
               <div className="dependency-grid">
                 {environment?.dependencies.map((dependency) => (
@@ -443,8 +457,8 @@ export function App() {
                 ))}
               </div>
               <InstallActions
-                launchAvailable={Boolean((window.pclaude as RendererApi | undefined)?.launchClaudeCode)}
-                launchEnabled={environment !== null && isEnvironmentReady(environment) && !installInProgress}
+                launchAvailable={launchAvailable}
+                launchEnabled={launchEnabled}
                 installInProgress={installInProgress}
                 refreshInProgress={environmentRefreshing}
                 onRefresh={handleRefresh}
@@ -463,13 +477,6 @@ export function App() {
                 <InstallProgressPanel entries={installProgress} running={installInProgress} />
               ) : null}
               {lastInstallResult ? <InstallReport result={lastInstallResult} /> : null}
-              <NextStepsPanel
-                connectivity={connectivity}
-                environment={environment}
-                installInProgress={installInProgress}
-                installResult={lastInstallResult}
-                status={status}
-              />
             </>
           ) : null}
 
@@ -628,23 +635,124 @@ function MetricCard({
   label,
   value,
   long = false,
-  tone = "default"
+  tone = "default",
+  className = ""
 }: {
   label: string;
   value: string;
   long?: boolean;
   tone?: "default" | "running";
+  className?: string;
 }) {
   return (
-    <article className={`metric-card ${long ? "is-wide" : ""} ${tone === "running" ? "metric-card--running" : ""}`}>
+    <article
+      className={`metric-card ${long ? "is-wide" : ""} ${tone === "running" ? "metric-card--running" : ""} ${className}`.trim()}
+    >
       <span className="metric-card__label">{label}</span>
       <strong className="metric-card__value">{value}</strong>
     </article>
   );
 }
 
+function StatusMetricCard({
+  label,
+  value,
+  tone,
+  lastCheckedAt,
+  launchAvailable,
+  launchEnabled,
+  launchLabel,
+  onLaunch
+}: {
+  label: string;
+  value: string;
+  tone: "default" | "running";
+  lastCheckedAt: number | null;
+  launchAvailable: boolean;
+  launchEnabled: boolean;
+  launchLabel: string;
+  onLaunch: () => void;
+}) {
+  return (
+    <article className={`metric-card metric-card--full-row ${tone === "running" ? "metric-card--running" : ""}`.trim()}>
+      <div className="metric-card__split">
+        <div className="metric-card__primary">
+          <span className="metric-card__label">{label}</span>
+          <strong className="metric-card__value">{value}</strong>
+        </div>
+        <div className="metric-card__aside">
+          <div className="metric-card__meta">
+            <span className="metric-card__meta-label">最近检测</span>
+            <strong className="metric-card__meta-value">{formatLastCheckedLabel(lastCheckedAt)}</strong>
+          </div>
+          <div className="metric-card__meta">
+            <span className="metric-card__meta-label">Claude 状态</span>
+            <strong className="metric-card__meta-value metric-card__meta-value--with-logo">
+              <img alt="Claude logo" className="metric-card__meta-logo" src={claudeLogo} />
+              <span>{launchLabel}</span>
+            </strong>
+          </div>
+          {launchAvailable ? (
+            <button className="ghost-button metric-card__action" type="button" disabled={!launchEnabled} onClick={onLaunch}>
+              立即启动
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function resolveStatusTone(status: string): "default" | "running" {
   return /Claude Code 已在终端中启动/u.test(status) ? "running" : "default";
+}
+
+function resolveLaunchSummary(
+  status: string,
+  environment: DetectEnvironmentResult | null,
+  installInProgress: boolean,
+  launchAvailable: boolean
+): string {
+  if (!launchAvailable) {
+    return "不可用";
+  }
+
+  if (/Claude Code 已在终端中启动/u.test(status)) {
+    return "运行中";
+  }
+
+  if (/正在启动 Claude Code/u.test(status)) {
+    return "启动中";
+  }
+
+  if (/Claude Code 已停止/u.test(status)) {
+    return "已停止";
+  }
+
+  if (installInProgress) {
+    return "安装中";
+  }
+
+  if (!environment || !isEnvironmentReady(environment)) {
+    return "等待环境";
+  }
+
+  return "未启动";
+}
+
+function formatLastCheckedLabel(lastCheckedAt: number | null): string {
+  if (lastCheckedAt === null) {
+    return "未检测";
+  }
+
+  if (Date.now() - lastCheckedAt < 60_000) {
+    return "刚刚";
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(lastCheckedAt);
 }
 
 function ActivityList({ entries, emptyLabel }: { entries: ActivityEntry[]; emptyLabel: string }) {
@@ -711,46 +819,6 @@ function InstallProgressPanel({ entries, running }: { entries: InstallProgressEn
               <p>{formatInstallProgressMessage(entry)}</p>
             </div>
             <span>{localizeInstallStage(entry.stage)}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function NextStepsPanel({
-  connectivity,
-  environment,
-  installInProgress,
-  installResult,
-  status
-}: {
-  connectivity: ConnectivityResult | null;
-  environment: DetectEnvironmentResult | null;
-  installInProgress: boolean;
-  installResult: InstallResult | null;
-  status: string;
-}) {
-  const steps = buildNextSteps({
-    connectivity,
-    environment,
-    installInProgress,
-    installResult,
-    status
-  });
-
-  return (
-    <section className="panel-card">
-      <div className="panel-card__heading">
-        <h3>下一步</h3>
-        <p>根据当前状态继续处理。</p>
-      </div>
-      <ul className="activity-list">
-        {steps.map((step) => (
-          <li key={step} className="activity-list__item">
-            <div>
-              <p>{step}</p>
-            </div>
           </li>
         ))}
       </ul>
@@ -930,67 +998,6 @@ function formatInstallProgressMessage(event: InstallProgressEvent): string {
 function formatInstallProgressStatus(entry: InstallProgressEvent): string {
   const message = formatInstallProgressMessage(entry);
   return message || "已收到安装进度更新。";
-}
-
-function buildNextSteps({
-  connectivity,
-  environment,
-  installInProgress,
-  installResult,
-  status
-}: {
-  connectivity: ConnectivityResult | null;
-  environment: DetectEnvironmentResult | null;
-  installInProgress: boolean;
-  installResult: InstallResult | null;
-  status: string;
-}): string[] {
-  const steps = new Set<string>();
-  const isReady = environment !== null && isEnvironmentReady(environment);
-  const hasBlockingInstallResult = Boolean(installResult?.steps.some((step) => step.state === "failed"));
-  const platform = environment?.platform;
-
-  if (installInProgress) {
-    steps.add("安装尚未结束，请保持窗口开启。");
-  }
-
-  if (!environment) {
-    steps.add("请先重新执行环境检测。");
-  } else if (!isReady) {
-    steps.add("先处理缺失依赖，再重新执行安装。");
-  } else {
-    steps.add("环境已就绪，可以直接启动 Claude Code。");
-  }
-
-  if (platform === "darwin" && environment?.dependencies.some((dependency) => dependency.name === "git" && dependency.state !== "installed")) {
-    steps.add("macOS 请安装 Xcode Command Line Tools 或 Homebrew Git，然后重新检测环境。");
-  }
-
-  if (hasBlockingInstallResult) {
-    steps.add("重新执行“安装缺失依赖”以重试失败项目。");
-  }
-
-  if (connectivity && !connectivity.ok) {
-    if (connectivity.reason === "missing_key") {
-      steps.add("补充 Anthropic API Key 后重新保存配置。");
-    } else if (connectivity.reason === "invalid_endpoint") {
-      steps.add("请填写合法的 Base URL 后再保存配置。");
-    } else if (connectivity.reason === "auth") {
-      steps.add("请检查 API Key 后重新执行连通性校验。");
-    } else {
-      steps.add("请处理网络或超时问题，然后重新执行连通性校验。");
-    }
-  }
-
-  if (/当前版本暂不支持启动|环境未就绪/u.test(status)) {
-    steps.add("只有所有依赖都显示已安装后，启动按钮才会可用。");
-  }
-
-  if (environment?.dependencies.some((dependency) => dependency.name === "claude" && dependency.state !== "installed")) {
-    steps.add("请先安装 Claude Code，再执行启动。");
-  }
-
-  return Array.from(steps).slice(0, 5);
 }
 
 function attachInstallProgressListener(

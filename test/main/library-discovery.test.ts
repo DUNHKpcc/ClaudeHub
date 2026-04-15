@@ -250,6 +250,41 @@ describe("library discovery service", () => {
     );
   });
 
+  it("discovers project commands and skills from the local .claude directory", async () => {
+    const homeDir = await createTempHome();
+    const cwd = await createTempHome();
+    const projectCommandPath = path.join(cwd, ".claude", "commands", "release.md");
+    const projectSkillPath = path.join(cwd, ".claude", "skills", "deploy-checklist", "SKILL.md");
+
+    await fs.mkdir(path.dirname(projectCommandPath), { recursive: true });
+    await fs.mkdir(path.dirname(projectSkillPath), { recursive: true });
+    await fs.writeFile(projectCommandPath, "---\ndescription: Project release helper\n---\nShip checklist\n", "utf8");
+    await fs.writeFile(projectSkillPath, "---\ndescription: Project deploy checklist\n---\nDeploy carefully.\n", "utf8");
+
+    const service = createLibraryDiscoveryService({
+      cwd,
+      homeDir,
+      platform: "darwin"
+    });
+
+    const skills = await service.scanSkillRecords();
+
+    expect(skills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "release",
+          sourceLabel: "Project Command",
+          sourcePath: projectCommandPath
+        }),
+        expect.objectContaining({
+          name: "deploy-checklist",
+          sourceLabel: "Project Skill",
+          sourcePath: projectSkillPath
+        })
+      ])
+    );
+  });
+
   it("discovers Claude plugin commands, agents, and skills from marketplace directories", async () => {
     const homeDir = await createTempHome();
     const pluginRoot = path.join(

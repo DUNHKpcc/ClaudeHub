@@ -53,6 +53,37 @@ describe("layout regression guards", () => {
     expect(sectionBodyBlock).toMatch(/align-items:\s*start/);
   });
 
+  it("keeps the main detail column scrollable without showing a visible scrollbar", () => {
+    const source = readProjectFile("src/renderer/styles.css");
+    const sectionBodyBlock = readCssBlock(source, ".section-body");
+    const webkitScrollbarBlock = readCssBlock(source, ".section-body::-webkit-scrollbar");
+
+    expect(sectionBodyBlock).toMatch(/overflow:\s*auto/);
+    expect(sectionBodyBlock).toMatch(/scrollbar-width:\s*none/);
+    expect(webkitScrollbarBlock).toMatch(/width:\s*0/);
+    expect(webkitScrollbarBlock).toMatch(/height:\s*0/);
+  });
+
+  it("keeps the current status metric card on its own full-width row", () => {
+    const source = readProjectFile("src/renderer/styles.css");
+    const statusRowBlock = readCssBlock(source, ".metric-card--full-row");
+    const configMetricGridBlock = readCssBlock(source, ".metric-grid--config");
+    const statusSplitBlock = readCssBlock(source, ".metric-card__split");
+    const statusAsideBlock = readCssBlock(source, ".metric-card__aside");
+    const statusMetaBlock = readCssBlock(source, ".metric-card__meta");
+    const statusMetaValueBlock = readCssBlock(source, ".metric-card__meta-value");
+
+    expect(configMetricGridBlock).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+    expect(statusRowBlock).toMatch(/grid-column:\s*1\s*\/\s*-1/);
+    expect(statusSplitBlock).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto/);
+    expect(statusAsideBlock).toMatch(/display:\s*flex/);
+    expect(statusAsideBlock).toMatch(/flex-wrap:\s*nowrap/);
+    expect(statusMetaBlock).toMatch(/display:\s*flex/);
+    expect(statusMetaBlock).toMatch(/align-items:\s*center/);
+    expect(statusMetaValueBlock).toMatch(/display:\s*inline-flex/);
+    expect(statusMetaValueBlock).toMatch(/align-items:\s*center/);
+  });
+
   it("uses one shared sans-serif stack for Chinese and English inside the right detail panel", () => {
     const source = readProjectFile("src/renderer/styles.css");
     const mainBlock = readCssBlock(source, ".claudehub-main");
