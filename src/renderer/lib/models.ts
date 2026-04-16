@@ -1,5 +1,5 @@
 export const supportedModels = [
-  "claude-opus-4-20250514",
-  "claude-sonnet-4-20250514",
-  "claude-3-7-sonnet-20250219"
+  "claude-opus4.6-thinking",
+  "claude-opus4.5",
+  "claude-sonnet-3.7"
 ] as const;
